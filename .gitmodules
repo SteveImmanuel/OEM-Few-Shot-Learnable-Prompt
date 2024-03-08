@@ -1,0 +1,3 @@
+[submodule "Painter"]
+	path = Painter
+	url = https://github.com/baaivision/Painter.git

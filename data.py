@@ -1,9 +1,9 @@
 import torch
 import os
 import os.path as osp
-import logging
 import numpy as np
 import imgaug.augmenters as iaa
+from utils import get_logger
 from typing import Iterable, Tuple, List
 from PIL import Image
 from itertools import combinations
@@ -19,7 +19,6 @@ class OEMDataset(torch.utils.data.Dataset):
         patch_size: Tuple[int, int] = (16, 16),
         mask_ratio: float = 0.75,
         half_mask_ratio: float = 0.2,
-        device: str = 'cuda'
     ):
         super().__init__()
         assert osp.exists(osp.join(root, 'images')), f'Path {root}/images does not exist'
@@ -33,8 +32,7 @@ class OEMDataset(torch.utils.data.Dataset):
         self.patch_size = patch_size
         self.mask_ratio = mask_ratio
         self.half_mask_ratio = half_mask_ratio
-        self.device = device
-        self.logger = logging.getLogger(__class__.__name__)
+        self.logger = get_logger(__class__.__name__, 0) # TODO: Bug, every process will log
         
         self.paths = []
         for path in os.listdir(osp.join(self.root, 'images')):
@@ -92,22 +90,19 @@ class OEMDataset(torch.utils.data.Dataset):
         arr = arr / 255.0
         arr = arr - self.mean
         arr = arr / self.std
-        return torch.tensor(arr, device=self.device)
+        res = torch.FloatTensor(arr)
+        res = torch.einsum('hwc->chw', res)
+        return res
     
     def _generate_mask(self, img_shape: Tuple[int, int]):
         total_patch = (img_shape[0] // self.patch_size[0]) * (img_shape[1] // self.patch_size[1])
-        print(total_patch, img_shape)
         if np.random.rand() < self.half_mask_ratio:
-            mask = torch.zeros(total_patch, device=self.device)
+            mask = torch.zeros(total_patch, dtype=torch.float32)
             mask[total_patch//2:] = 1
-            mask = mask.unsqueeze(dim=0)
         else:
             total_zeros = int(total_patch * self.mask_ratio)
-            shuffle_idx = torch.randperm(total_patch, device=self.device)
-            print(shuffle_idx)
-            mask = torch.tensor([0] * total_zeros + [1] * (total_patch - total_zeros), device=self.device)[shuffle_idx]
-            print(mask)
-
+            shuffle_idx = torch.randperm(total_patch)
+            mask = torch.FloatTensor([0] * total_zeros + [1] * (total_patch - total_zeros))[shuffle_idx]
         return mask
 
     def __getitem__(self, idx):
@@ -128,10 +123,10 @@ class OEMDataset(torch.utils.data.Dataset):
         img = self._to_tensor(img)
         label = self._to_tensor(label)
         
-        valid = torch.ones_like(label, device=self.device)
-        mask = self._generate_mask((img.shape[0], img.shape[1]))
-        seg_type = torch.ones([valid.shape[0], 1], device=self.device)
-        return img, label, mask, valid, seg_type, color_palette
+        valid = torch.ones_like(label)
+        mask = self._generate_mask((img.shape[1], img.shape[2]))
+        seg_type = torch.zeros([1])
+        return img, label, mask, valid, seg_type
 
     def __len__(self):
         return len(self.pairs)

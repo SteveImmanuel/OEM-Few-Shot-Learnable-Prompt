@@ -1,0 +1,18 @@
+{
+    "lr": 0.00001,
+    "cycle_mult": 1.0,
+    "lr_decay_factor": 0.8,
+    "cycle_steps": 6000,
+    "warmup_steps": 1800,
+    "min_lr": 0.00000001,
+    "batch_size": 1,
+    "epoch": 5,
+    "log_dir": "logs",
+    "train_dataset_dir": "/home/steve/Datasets/OpenEarthMap-FSS/trainset",
+    "val_dataset_dir": "/home/steve/Datasets/OpenEarthMap-FSS/valset",
+    "mask_ratio": 0.75,
+    "half_mask_ratio": 0.2,
+    "num_workers": 4,
+    "eval_per_epoch": 4,
+    "ckpt_interval": 1
+}

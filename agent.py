@@ -83,6 +83,12 @@ class Agent():
         seg_type: T.tensor,
         is_train: bool,
     ):
+        img = img.to(self.gpu_id)
+        label = label.to(self.gpu_id)
+        mask = mask.to(self.gpu_id)
+        valid = valid.to(self.gpu_id)
+        seg_type = seg_type.to(self.gpu_id)
+
         with T.cuda.amp.autocast():
             feature_ensemble = -1 # TODO: test change to 0 to enable
             loss, pred, bool_masked_pos = self.model(img, label, mask, valid, seg_type, feature_ensemble)
@@ -102,10 +108,9 @@ class Agent():
             self.logger.info('Validation Phase')
 
         batch_losses = T.zeros(len(dl)).to(self.gpu_id)
-
         pbar = tqdm(dl, disable=self.gpu_id != 0)
 
-        for i, (img, label, mask, valid, seg_type, color_palette) in enumerate(pbar):
+        for i, (img, label, mask, valid, seg_type) in enumerate(pbar):
             if not is_train:
                 self.model.eval()
                 with T.no_grad():

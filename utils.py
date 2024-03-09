@@ -33,12 +33,15 @@ def cmap_to_lbl(cmap: torch.tensor, color_palette: torch.tensor):
 
 def calculate_iou(pred: torch.tensor, gt: torch.tensor, color_palette: torch.tensor):
     N, _ = color_palette.shape
+    x = 0
     for i in range(N):
         pred_total = (pred == i)
         gt_total = (gt == i)
         intersection = (pred_total & gt_total).sum()
         union = pred_total.sum() + gt_total.sum() - intersection
+        x += pred_total.sum()
         print(i, intersection, union, intersection/union)
+    print(x)
 
 if __name__ == '__main__':
     color_palette = [
@@ -57,12 +60,21 @@ if __name__ == '__main__':
     dcmap, label = cmap_to_lbl(img, color_palette)
     dcmap = dcmap.numpy().astype(np.uint8)
     label = label.numpy().astype(np.uint8)
+    label = Image.fromarray(label)
+    label.save('pred.png')
+
+    img = np.array(Image.open('temp2.png'))
+    img = torch.FloatTensor(img)
+    dcmap, label = cmap_to_lbl(img, color_palette)
+    dcmap = dcmap.numpy().astype(np.uint8)
+    label = label.numpy().astype(np.uint8)
+    label = Image.fromarray(label)
+    label.save('gt.png') #make sure to save as PNG for lossless compression
 
 
-
-    img1 = np.array(Image.open('pred.jpg'))
+    img1 = np.array(Image.open('pred.png'))
     img1 = torch.FloatTensor(img1)
-    img2 = np.array(Image.open('gt.jpg'))
+    img2 = np.array(Image.open('gt.png'))
     img2 = torch.FloatTensor(img2)
     
     calculate_iou(img1, img2, color_palette)

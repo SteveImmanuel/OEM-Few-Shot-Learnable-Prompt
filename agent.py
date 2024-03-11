@@ -3,10 +3,11 @@ import os
 import argparse
 import torch as T
 import json
+import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 from torch.nn.parallel import DistributedDataParallel as DDP
-from utils import get_logger
+from utils import get_logger, cmap_to_lbl, calculate_iou
 from typing import Dict
 from tqdm import tqdm
 from collections import deque
@@ -73,14 +74,18 @@ class Agent():
     def write_summary(self, title, value, step):
         if self.log_enabled and self.gpu_id == 0:
             self.summary_writer.add_scalar(title, value, step)
+    
+    def write_images(self, title, images, step):
+        if self.log_enabled and self.gpu_id == 0:
+            self.summary_writer.add_images(title, images, step)
 
     def step(
         self,
-        img: T.tensor,
-        label: T.tensor,
-        mask: T.tensor,
-        valid: T.tensor,
-        seg_type: T.tensor,
+        img: T.Tensor,
+        label: T.Tensor,
+        mask: T.Tensor,
+        valid: T.Tensor,
+        seg_type: T.Tensor,
         is_train: bool,
     ):
         img = img.to(self.gpu_id)
@@ -100,6 +105,46 @@ class Agent():
             self.scaler.update()
         
         return loss.item(), pred, bool_masked_pos
+    
+    def visualize(self, title:str, imgs: T.Tensor, labels: T.Tensor, preds: T.Tensor, discretized_cmaps: T.Tensor, masks: T.Tensor, counter:int = None):
+        if self.log_enabled and self.gpu_id == 0 and (self.counter % self.args['image_log_interval'] == 0 or counter is not None):
+            counter = counter if counter is not None else self.counter
+            idx = np.random.randint(0, len(preds))
+
+            input_img = imgs[idx].cpu()
+            label = labels[idx].cpu()
+            pred = preds[idx].cpu()
+            cmap = discretized_cmaps[idx].cpu()
+            mask = masks[idx].cpu().float()
+            masked_label = (1 - mask) * label  + mask * T.randn_like(mask)
+            
+            result = T.concatenate([input_img, masked_label, label], axis=2)
+            result = T.permute(result, (1, 2, 0))
+            result = self.unnormalize(result)
+            
+            result = T.concatenate([result, pred, cmap / 255.0], axis=1)
+            self.summary_writer.add_image(title, result, counter, dataformats='HWC')
+    
+    def unnormalize(self, img: T.tensor):
+        # img B, H, W, 3 or H, W, 3
+        std = T.FloatTensor(self.args['image_std']).to(img.device)
+        mean = T.FloatTensor(self.args['image_mean']).to(img.device)
+        return T.clip((img * std + mean), 0, 1)
+
+    def iou(self, pred: T.tensor, label: T.tensor, mask: T.tensor, ori_label: T.tensor, color_palette: T.tensor):
+        pred = self.model.module.unpatchify(pred) # B, 3, H, W
+        mask = mask[:, :, None].repeat(1, 1, self.model.module.patch_size**2 * 3)
+        mask = self.model.module.unpatchify(mask)
+        mask = mask.to(pred.device)
+        ori_label = ori_label.to(pred.device)
+        color_palette = color_palette.to(pred.device)
+
+        pred = T.permute(pred, (0, 2, 3, 1))  # B, H, W, 3
+        pred = self.unnormalize(pred)
+        discretized_cmap, pred_label = cmap_to_lbl(pred * 255.0, color_palette)
+        n_class = color_palette.shape[1]
+        result = calculate_iou(pred_label, ori_label, mask[:, 0, :, :], n_class)
+        return result, pred, discretized_cmap, mask
 
     def process_data(self, dl: T.utils.data.DataLoader, is_train: bool, epoch: int):
         if is_train:
@@ -107,41 +152,71 @@ class Agent():
         elif not self.is_eval:
             self.logger.info('Validation Phase')
 
-        batch_losses = T.zeros(len(dl)).to(self.gpu_id)
+        n_class = dl.dataset.max_classes
+        iou = T.zeros((n_class, 2), device=self.gpu_id)
+        batch_losses = T.zeros(2, device=self.gpu_id)
+
         pbar = tqdm(dl, disable=self.gpu_id != 0)
 
-        for i, (img, label, mask, valid, seg_type) in enumerate(pbar):
+        for i, (img, label, mask, valid, seg_type, ori_label, color_palette) in enumerate(pbar):
             if not is_train:
                 self.model.eval()
                 with T.no_grad():
                     b_loss, b_pred, b_mask = self.step(img, label, mask, valid, seg_type, is_train)
+                
+                c_iou, preds, cmaps, masks = self.iou(b_pred, label, mask, ori_label, color_palette)
+                val_counter = epoch * len(dl) + i
+                if val_counter % 5 == 0:
+                    self.visualize('Validation', img, label, preds, cmaps, masks, val_counter)
             else:
                 self.model.train()
                 b_loss, b_pred, b_mask = self.step(img, label, mask, valid, seg_type, is_train)
                 self.counter += 1
 
                 self.scheduler.step()
+                
+                c_iou, preds, cmaps, masks = self.iou(b_pred, label, mask, ori_label, color_palette)
 
-                for k in range(len(self.optim.param_groups)):
-                    self.write_summary(f'LR Scheduler/{k}', self.optim.param_groups[k]['lr'], self.counter)
+                self.write_summary(f'LR Scheduler', self.optim.param_groups[0]['lr'], self.counter)
                 self.write_summary('Training/Batch Loss', b_loss, self.counter)
 
+                self.visualize('Training', img, label, preds, cmaps, masks)
                 yield i
 
-            batch_losses[i] = b_loss
 
-            avg_losses = batch_losses[batch_losses.nonzero()].mean().item()
+            if self.gpu_id != 0:  # reset for gpu rank > 0
+                batch_losses = T.zeros(2, device=self.gpu_id)
+                iou = T.zeros((n_class, 2), device=self.gpu_id)
+
+            batch_losses[0] += b_loss
+            batch_losses[1] += 1
+            iou = iou + c_iou
+            
+            T.distributed.reduce(batch_losses, dst=0)
+            T.distributed.reduce(iou, dst=0)
+
+            avg_losses = batch_losses[0] / batch_losses[1]
+            m_iou = 100 * iou[:, 0] / (iou[:, 1] + 1e-10)
+            
+            if is_train: # when training, only check iou for the first 7 classes (base)
+                m_iou = m_iou[:7].mean().item()
+            else: # when validation, only check iou for the last 4 classes (novel)
+                m_iou = m_iou[:-4].mean().item()
 
             pbar.set_postfix({
                 'Loss': f'{avg_losses:.5f}',
+                'mIoU': f'{m_iou:.3f}'
             })
 
         if not is_train:
             self.last_loss = avg_losses
+            self.last_metric_val = m_iou
 
             self.write_summary('Validation/Loss', avg_losses, epoch)
+            self.write_summary('Validation/mIoU', m_iou, epoch)
         else:
             self.write_summary('Training/Loss', avg_losses, epoch)
+            self.write_summary('Training/mIoU', m_iou, epoch)
 
         yield -1
 
@@ -209,5 +284,4 @@ class Agent():
 
     def do_evaluation(self, test_dataloader: T.utils.data.DataLoader):
         deque(self.process_data(test_dataloader, False, 0), maxlen=0)
-        self.logger.info(f'Accuracy: {self.last_metric_val*100:.5f}%')
         self.logger.info(f'Loss: {self.last_loss:.5f}')

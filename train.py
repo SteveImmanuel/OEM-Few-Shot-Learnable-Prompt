@@ -31,14 +31,19 @@ def main(rank: int, world_size: int, train_args: Dict):
     train_dataset = OEMDataset(
         root = train_args['train_dataset_dir'], 
         max_classes = 11,
+        mean = train_args['image_mean'],
+        std = train_args['image_std'],
         mask_ratio = train_args['mask_ratio'],
         half_mask_ratio = train_args['half_mask_ratio'],
     )
     val_dataset = OEMDataset(
         root = train_args['val_dataset_dir'], 
         max_classes = 11,
+        mean = train_args['image_mean'],
+        std = train_args['image_std'],
         mask_ratio = train_args['mask_ratio'],
         half_mask_ratio = train_args['half_mask_ratio'],
+        is_train = False,
     )
 
     logger.info('Instantiating model and trainer agent')

@@ -11,7 +11,7 @@ from utils import *
 from torch.distributed import init_process_group, destroy_process_group
 from torch.utils.data.distributed import DistributedSampler
 from Painter.SegGPT.SegGPT_inference.models_seggpt import seggpt_vit_large_patch16_input896x448
-from data import OEMDataset
+from data import OEMFullDataset
 
 def ddp_setup(rank: int, world_size: int):
     os.environ['MASTER_ADDR'] = 'localhost'
@@ -28,7 +28,7 @@ def main(rank: int, world_size: int, train_args: Dict):
     logger = get_logger(__name__, rank)
 
     logger.info('Preparing dataset')
-    train_dataset = OEMDataset(
+    train_dataset = OEMFullDataset(
         root = train_args['train_dataset_dir'], 
         max_classes = train_args['n_classes'],
         mean = train_args['image_mean'],
@@ -36,7 +36,7 @@ def main(rank: int, world_size: int, train_args: Dict):
         mask_ratio = train_args['mask_ratio'],
         is_train=True,
     )
-    val_dataset = OEMDataset(
+    val_dataset = OEMFullDataset(
         root = train_args['val_dataset_dir'], 
         max_classes = train_args['n_classes'],
         mean = train_args['image_mean'],
@@ -53,6 +53,7 @@ def main(rank: int, world_size: int, train_args: Dict):
     logger.info('Initial checkpoint loaded')
 
     trainer = Agent(model, rank, train_args)
+
     logger.info(f'Using {T.cuda.device_count()} GPU(s)')
     if 'model_path' in train_args:
         trainer.load_checkpoint(train_args['model_path'])
@@ -75,12 +76,11 @@ def main(rank: int, world_size: int, train_args: Dict):
         sampler=DistributedSampler(val_dataset),
     )
 
-
     trainer.do_training(train_dataloader, val_dataloader, train_args['eval_per_epoch'])
     destroy_process_group()
 
 
 if __name__ == '__main__':
-    train_args = json.load(open('configs/base.json', 'r'))
+    train_args = json.load(open('configs/full_phase1.json', 'r'))
     world_size = T.cuda.device_count()
     mp.spawn(main, nprocs=world_size, args=(world_size, train_args))

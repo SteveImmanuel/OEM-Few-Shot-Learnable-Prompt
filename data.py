@@ -193,6 +193,43 @@ class OEMDataset(torch.utils.data.Dataset):
             return len(self.same_class_pairs) + len(self.diff_class_pairs)
         return len(self.same_class_pairs)
 
+class OEMFullDataset(OEMDataset):
+    def __init__(
+        self, 
+        root:str, 
+        mean:Iterable[float]=[0.485, 0.456, 0.406], 
+        std:Iterable[float]=[0.229, 0.224, 0.225], 
+        resize: Tuple[int, int] = (448, 448),
+        max_classes: int = 11, # excluding background
+        patch_size: Tuple[int, int] = (16, 16),
+        mask_ratio: float = 0.75,
+        is_train: bool = True,
+    ):
+        super().__init__(root, mean, std, resize, max_classes, patch_size, mask_ratio, is_train)
+    
+    def _generate_pairs(self):
+        indices = np.arange(len(self.paths))
+        self.pairs = list(combinations(indices, 2))
+
+    def _filter_pairs(self):
+        self.same_class_pairs = []
+        self.diff_class_pairs = []
+        for pair in tqdm(self.pairs, desc='Filtering pairs'):
+            len_intersect = len(self.unique_classes[pair[0]].intersection(self.unique_classes[pair[1]]))
+            len_union = len(self.unique_classes[pair[0]].union(self.unique_classes[pair[1]]))
+            if len_intersect == len_union:
+                self.same_class_pairs.append(pair)
+            elif len_intersect / len_union >= 0.8:
+                self.diff_class_pairs.append(pair)
+
+        np.random.shuffle(self.same_class_pairs)
+        np.random.shuffle(self.diff_class_pairs)
+        cut_off_idx = int(len(self.diff_class_pairs) * 0.2 )
+        if self.is_train:
+            self.same_class_pairs = self.same_class_pairs[:cut_off_idx]
+        else:
+            self.same_class_pairs = self.same_class_pairs[cut_off_idx:]
+
 if __name__ == '__main__':
     dataset = OEMDataset('/home/steve/Datasets/OpenEarthMap-FSS/trainset', is_train=True)
     for i in tqdm(range(len(dataset))):

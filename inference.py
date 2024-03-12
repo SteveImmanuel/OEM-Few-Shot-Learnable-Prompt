@@ -1,7 +1,7 @@
 import sys
 sys.path.append('Painter/SegGPT/SegGPT_inference')
 
-import os
+import os, json
 import argparse
 import torch
 import numpy as np
@@ -37,6 +37,8 @@ def get_args_parser():
                         default='seggpt_vit_large.pth')
     parser.add_argument('--model', type=str, help='dir to ckpt',
                         default='seggpt_vit_large_patch16_input896x448')
+    parser.add_argument('--mapping', type=str, help='path to mapping of query and prompt list',
+                        default="inference_mapping.json")
     parser.add_argument('--input_image', type=str, help='path to input image to be tested',
                         default=None)
     parser.add_argument('--prompt_image', type=str, nargs='+', help='path to prompt image',
@@ -91,7 +93,7 @@ def run_one_image(img, tgt, model, device):
     output = torch.clip((output * imagenet_std + imagenet_mean) * 255, 0, 255)
     return output
 
-def inference_image(model, device, img_path, img2_paths, tgt2_paths, out_path):
+def inference_image(model, device, img_path, img2_paths, tgt2_paths, out_path, store_dir=False):
     res, hres = 448, 448
 
     image = Image.open(img_path).convert("RGB")
@@ -141,29 +143,55 @@ def inference_image(model, device, img_path, img2_paths, tgt2_paths, out_path):
     output, label = cmap_to_lbl(output, torch.tensor(color_map, device=output.device, dtype=output.dtype).unsqueeze(0))
 
     output = output[0].numpy()
+    output = np.concatenate((input_image, output), axis=1)
     output = Image.fromarray((output).astype(np.uint8))
-    output.save(out_path)
+    if store_dir:
+        dirname, filename = os.path.dirname(out_path), os.path.basename(out_path)
+        color_dir = os.path.join(dirname, "color"); os.makedirs(color_dir, exist_ok=True)
+        output.save(os.path.join(color_dir, filename))
 
+        label = label[0].numpy()
+        label = Image.fromarray((label).astype(np.uint8))
+        label_dir = os.path.join(dirname, "label"); os.makedirs(label_dir, exist_ok=True)
+        label.save(os.path.join(label_dir, filename))
+    else:
+        output.save(out_path)
 
+def run_eval(args, model):
+    mapping = json.load(open(args.mapping))
+    train_folder, val_folder = "/home/hagairaja/OpenEarthMap/dataset/trainset/images", "/home/hagairaja/OpenEarthMap/dataset/valset/images"
+    train_color_folder = "/home/hagairaja/OpenEarthMap/dataset/trainset/labels_colored"
+    for input_image in mapping:
+        input = os.path.join(val_folder, input_image)
+        prompt = [os.path.join(train_folder, file) for file in mapping[input_image]]
+        prompt_target = [os.path.join(train_color_folder, file.replace('.tif', '.png')) for file in mapping[input_image]]
+        out_path = os.path.join(args.output_dir, input_image.replace('.tif', '.png'))
+        inference_image(model, device, input, prompt, prompt_target, out_path, store_dir=True)
+    return
 
 if __name__ == '__main__':
     args = get_args_parser()
-
+    print(args)
     device = torch.device(args.device)
     model = prepare_model(args.ckpt_path, args.model, args.seg_type).to(device)
     print('Model loaded.')
 
-    assert args.input_image
-    assert args.prompt_image is not None and args.prompt_target is not None
+    if not args.input_image:
+        run_eval(args, model)
+    else:
+        assert args.input_image
+        assert args.prompt_image is not None and args.prompt_target is not None
 
-    img_name = os.path.basename(args.input_image)
-    out_path = os.path.join(args.output_dir, "output_" + '.'.join(img_name.split('.')[:-1]) + '.png')
+        img_name = os.path.basename(args.input_image)
+        out_path = os.path.join(args.output_dir, "output_" + '.'.join(img_name.split('.')[:-1]) + '.png')
 
-    inference_image(model, device, args.input_image, args.prompt_image, args.prompt_target, out_path)
+        inference_image(model, device, args.input_image, args.prompt_image, args.prompt_target, out_path)
     
-
     print('Finished.')
+
 """
+python inference.py --ckpt_path /home/steve/SegGPT-FineTune/logs/1710148218/weights/epoch15_loss0.7601_metric0.0000.pt --output_dir submission
+
 python seggpt_inference.py --ckpt_path /home/steve/SegGPT-FineTune/logs/1710148218/weights/epoch15_loss0.7601_metric0.0000.pt \
 --input_image /disk3/steve/dataset/OpenEarthMap-FSS/valset/images/accra_29.tif \
 --prompt_image /disk3/steve/dataset/OpenEarthMap-FSS/trainset/images/accra_8.tif /disk3/steve/dataset/OpenEarthMap-FSS/trainset/images/accra_27.tif /disk3/steve/dataset/OpenEarthMap-FSS/trainset/images/accra_31.tif /disk3/steve/dataset/OpenEarthMap-FSS/trainset/images/accra_37.tif \

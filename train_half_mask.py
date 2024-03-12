@@ -11,7 +11,7 @@ from utils import *
 from torch.distributed import init_process_group, destroy_process_group
 from torch.utils.data.distributed import DistributedSampler
 from Painter.SegGPT.SegGPT_inference.models_seggpt import seggpt_vit_large_patch16_input896x448
-from data import OEMFullDataset
+from data import OEMHalfMaskDataset
 
 def ddp_setup(rank: int, world_size: int):
     os.environ['MASTER_ADDR'] = 'localhost'
@@ -28,7 +28,7 @@ def main(rank: int, world_size: int, train_args: Dict):
     logger = get_logger(__name__, rank)
 
     logger.info('Preparing dataset')
-    train_dataset = OEMFullDataset(
+    train_dataset = OEMHalfMaskDataset(
         root = train_args['train_dataset_dir'], 
         max_classes = train_args['n_classes'],
         mean = train_args['image_mean'],
@@ -36,7 +36,7 @@ def main(rank: int, world_size: int, train_args: Dict):
         mask_ratio = train_args['mask_ratio'],
         is_train=True,
     )
-    val_dataset = OEMFullDataset(
+    val_dataset = OEMHalfMaskDataset(
         root = train_args['val_dataset_dir'], 
         max_classes = train_args['n_classes'],
         mean = train_args['image_mean'],

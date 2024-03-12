@@ -6,17 +6,17 @@
     "warmup_steps": 200,
     "min_lr": 0.00000001,
     "batch_size": 4,
-    "epoch": 15,
+    "epoch": 30,
     "log_dir": "logs",
-    "train_dataset_dir": "/disk3/steve/dataset/OpenEarthMap",
-    "val_dataset_dir": "/disk3/steve/dataset/OpenEarthMap",
+    "train_dataset_dir": "/disk3/steve/dataset/OpenEarthMap-FSS/trainset",
+    "val_dataset_dir": "/disk3/steve/dataset/OpenEarthMap-FSS/trainset",
     "mask_ratio": 0.75,
     "num_workers": 4,
-    "eval_per_epoch": 10,
+    "eval_per_epoch": 1,
     "ckpt_interval": 1,
     "image_mean": [0.485, 0.456, 0.406],
     "image_std": [0.229, 0.224, 0.225],
-    "image_log_interval": 100,
+    "image_log_interval": 50,
     "model_path": "/home/steve/SegGPT-FineTune/logs/1710148218/weights/epoch15_loss0.7601_metric0.0000.pt",
-    "n_classes": 7
+    "n_classes": 8
 }

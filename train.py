@@ -16,13 +16,13 @@ from data import OEMDataset
 def ddp_setup(rank: int, world_size: int):
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = '12355'
+    T.cuda.set_device(rank)
+    T.cuda.empty_cache()
     init_process_group('nccl', rank=rank, world_size=world_size)
 
 
 def main(rank: int, world_size: int, train_args: Dict):
     ddp_setup(rank, world_size)
-    T.cuda.set_device(rank)
-    T.cuda.empty_cache()
 
     setup_logging()
     logger = get_logger(__name__, rank)
@@ -30,14 +30,15 @@ def main(rank: int, world_size: int, train_args: Dict):
     logger.info('Preparing dataset')
     train_dataset = OEMDataset(
         root = train_args['train_dataset_dir'], 
-        max_classes = 11,
+        max_classes = train_args['n_classes'],
         mean = train_args['image_mean'],
         std = train_args['image_std'],
         mask_ratio = train_args['mask_ratio'],
+        is_train=True,
     )
     val_dataset = OEMDataset(
         root = train_args['val_dataset_dir'], 
-        max_classes = 11,
+        max_classes = train_args['n_classes'],
         mean = train_args['image_mean'],
         std = train_args['image_std'],
         mask_ratio = train_args['mask_ratio'],
@@ -52,7 +53,6 @@ def main(rank: int, world_size: int, train_args: Dict):
     logger.info('Initial checkpoint loaded')
 
     trainer = Agent(model, rank, train_args)
-
     logger.info(f'Using {T.cuda.device_count()} GPU(s)')
     if 'model_path' in train_args:
         trainer.load_checkpoint(train_args['model_path'])
@@ -74,6 +74,7 @@ def main(rank: int, world_size: int, train_args: Dict):
         pin_memory=True,
         sampler=DistributedSampler(val_dataset),
     )
+
 
     trainer.do_training(train_dataloader, val_dataloader, train_args['eval_per_epoch'])
     destroy_process_group()

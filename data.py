@@ -200,7 +200,7 @@ class OEMHalfMaskDataset(OEMDataset):
         mean:Iterable[float]=[0.485, 0.456, 0.406], 
         std:Iterable[float]=[0.229, 0.224, 0.225], 
         resize: Tuple[int, int] = (448, 448),
-        max_classes: int = 11, # excluding background
+        max_classes: int = 12, # including background
         patch_size: Tuple[int, int] = (16, 16),
         mask_ratio: float = 0.75,
         is_train: bool = True,
@@ -267,8 +267,50 @@ class OEMHalfMaskDataset(OEMDataset):
         color_palette = torch.FloatTensor(color_palette)
         return img, label, mask, valid, seg_type, ori_label, color_palette
 
+class OEMOneClassDataset(OEMDataset):
+    def __init__(
+        self, 
+        root:str, 
+        mean:Iterable[float]=[0.485, 0.456, 0.406], 
+        std:Iterable[float]=[0.229, 0.224, 0.225], 
+        resize: Tuple[int, int] = (448, 448),
+        max_classes: int = 12, # including background
+        patch_size: Tuple[int, int] = (16, 16),
+        mask_ratio: float = 0.75,
+        is_train: bool = True,
+    ):
+        super().__init__(root, mean, std, resize, max_classes, patch_size, mask_ratio, is_train)
+        if not self.is_train:
+            self.color_palette = self._generate_color_palette()
+        
+    def _preload_dataset(self):
+        self.images = []
+        self.groups = {i + 1: [] for i in range(self.max_classes - 1)} # excluding background
+        self.total_pixels = {i + 1: 0 for i in range(self.max_classes - 1)}
+        for i, (img_path, label_path) in enumerate(tqdm(self.paths, desc='Caching images and grouping labels')):
+            img = self._load_img(img_path)
+            label = self._load_lbl(label_path)
+            self.images.append(img)
+
+            for j in range(1, self.max_classes):
+                mask = label == j
+                c_pixels = mask.sum()
+                if c_pixels > 0:
+                    self.groups[j].append((i, mask.astype(np.uint8)))
+                self.total_pixels[j] += c_pixels
+    
+    def _generate_pairs(self):
+        # self.group_pairs 
+        pass
+
+    def _filter_pairs(self):
+        pass
+
+
+
+
 if __name__ == '__main__':
-    dataset = OEMDataset('/disk3/steve/dataset/OpenEarthMap', is_train=True)
+    dataset = OEMOneClassDataset('/home/steve/Datasets/OpenEarthMap-FSS/trainset', is_train=True)
     # for i in tqdm(range(len(dataset))):
     #     a = dataset[i]
     # img, label = dataset[0]

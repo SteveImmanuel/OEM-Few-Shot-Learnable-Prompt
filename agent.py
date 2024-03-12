@@ -198,7 +198,6 @@ class Agent():
             avg_losses = batch_losses[0] / batch_losses[1]
             m_iou = 100 * iou[:, 0] / (iou[:, 1] + 1e-10)
             
-            m_iou = m_iou.mean().item()
             # if is_train: # when training, only check iou for the first 7 classes (base)
             #     m_iou = m_iou[:7].mean().item()
             # else: # when validation, only check iou for the last 4 classes (novel)
@@ -206,18 +205,19 @@ class Agent():
 
             pbar.set_postfix({
                 'Loss': f'{avg_losses:.5f}',
-                'mIoU': f'{m_iou:.3f}'
+                'mIoU': f'{m_iou[1:].mean().item():.3f}', # exclude background on mIoU
+                'IoU': ['%.3f' % x for x in m_iou.tolist()]
             })
 
         if not is_train:
             self.last_loss = avg_losses
-            self.last_metric_val = m_iou
+            self.last_metric_val = m_iou[1:].mean().item()
 
             self.write_summary('Validation/Loss', avg_losses, epoch)
-            self.write_summary('Validation/mIoU', m_iou, epoch)
+            self.write_summary('Validation/mIoU', m_iou[1:].mean().item(), epoch)
         else:
             self.write_summary('Training/Loss', avg_losses, epoch)
-            self.write_summary('Training/mIoU', m_iou, epoch)
+            self.write_summary('Training/mIoU', m_iou[1:].mean().item(), epoch)
 
         yield -1
 

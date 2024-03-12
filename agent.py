@@ -166,8 +166,8 @@ class Agent():
                 
                 c_iou, preds, cmaps, masks = self.iou(b_pred, label, mask, ori_label, color_palette)
                 val_counter = epoch * len(dl) + i
-                if val_counter % 5 == 0:
-                    self.visualize('Validation', img, label, preds, cmaps, masks, val_counter)
+                if val_counter % self.args['image_log_interval'] == 0:
+                    self.visualize(f'Validation/{epoch}', img, label, preds, cmaps, masks, val_counter)
             else:
                 self.model.train()
                 b_loss, b_pred, b_mask = self.step(img, label, mask, valid, seg_type, is_train)
@@ -180,7 +180,7 @@ class Agent():
                 self.write_summary(f'LR Scheduler', self.optim.param_groups[0]['lr'], self.counter)
                 self.write_summary('Training/Batch Loss', b_loss, self.counter)
 
-                self.visualize('Training', img, label, preds, cmaps, masks)
+                self.visualize(f'Training/{epoch}', img, label, preds, cmaps, masks)
                 yield i
 
 
@@ -198,10 +198,11 @@ class Agent():
             avg_losses = batch_losses[0] / batch_losses[1]
             m_iou = 100 * iou[:, 0] / (iou[:, 1] + 1e-10)
             
-            if is_train: # when training, only check iou for the first 7 classes (base)
-                m_iou = m_iou[:7].mean().item()
-            else: # when validation, only check iou for the last 4 classes (novel)
-                m_iou = m_iou[:-4].mean().item()
+            m_iou = m_iou.mean().item()
+            # if is_train: # when training, only check iou for the first 7 classes (base)
+            #     m_iou = m_iou[:7].mean().item()
+            # else: # when validation, only check iou for the last 4 classes (novel)
+            #     m_iou = m_iou[:-4].mean().item()
 
             pbar.set_postfix({
                 'Loss': f'{avg_losses:.5f}',
@@ -250,7 +251,7 @@ class Agent():
 
     def load_checkpoint(self, ckpt_path: str, only_model: bool = True):
         assert os.path.exists(ckpt_path)
-        checkpoint = T.load(ckpt_path)
+        checkpoint = T.load(ckpt_path, map_location='cpu')
         self.model.module.load_state_dict(checkpoint['model_state_dict'])
         if not only_model:
             self.optim.load_state_dict(checkpoint['optimizer_state_dict'])

@@ -162,3 +162,8 @@ cython_debug/
 logs
 *.pth
 submission
+
+cmap_*
+color*
+label*
+*.pt

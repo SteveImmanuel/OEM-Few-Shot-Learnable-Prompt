@@ -20,8 +20,8 @@ def get_logger(name: str, rank: int):
 def cmap_to_lbl(cmap: torch.Tensor, color_palette: torch.Tensor):
     B, H, W, C = cmap.shape
     black = torch.zeros(3, dtype=color_palette.dtype, device=color_palette.device).reshape(1, 1, -1).expand(B, -1, -1)
-    ex_color_palette = torch.concatenate([black, color_palette], axis=1)
-    B, N, _ = ex_color_palette.shape
+    ex_color_palette = color_palette
+    _, N, _ = ex_color_palette.shape
     
     dist_mat = torch.cdist(cmap.reshape(B, H * W, C), ex_color_palette, p=2)
     dist_mat = dist_mat.reshape(B, H, W, N)

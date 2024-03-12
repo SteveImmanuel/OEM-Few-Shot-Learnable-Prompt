@@ -4,7 +4,8 @@ sys.path.append('Painter/SegGPT/SegGPT_inference')
 import os, json
 import argparse
 import torch
-import numpy as np
+import numpy as np, cv2
+from tqdm import tqdm
 import models_seggpt
 import torch.nn.functional as F
 from PIL import Image
@@ -98,7 +99,8 @@ def inference_image(model, device, img_path, img2_paths, tgt2_paths, out_path, s
 
     image = Image.open(img_path).convert("RGB")
     input_image = np.array(image)
-    size = image.size
+    if store_dir: size = (1024,1024)
+    else: size = image.size
     image = np.array(image.resize((res, hres))) / 255.
 
     image_batch, target_batch = [], []
@@ -139,11 +141,10 @@ def inference_image(model, device, img_path, img2_paths, tgt2_paths, out_path, s
         size=[size[1], size[0]], 
         mode='nearest',
     ).permute(0, 2, 3, 1)
-    print(output.shape)
     output, label = cmap_to_lbl(output, torch.tensor(color_map, device=output.device, dtype=output.dtype).unsqueeze(0))
 
     output = output[0].numpy()
-    output = np.concatenate((input_image, output), axis=1)
+    output = np.concatenate((cv2.resize(input_image, (output.shape[0], output.shape[1])), output), axis=1)
     output = Image.fromarray((output).astype(np.uint8))
     if store_dir:
         dirname, filename = os.path.dirname(out_path), os.path.basename(out_path)
@@ -161,7 +162,7 @@ def run_eval(args, model):
     mapping = json.load(open(args.mapping))
     train_folder, val_folder = "/home/hagairaja/OpenEarthMap/dataset/trainset/images", "/home/hagairaja/OpenEarthMap/dataset/valset/images"
     train_color_folder = "/home/hagairaja/OpenEarthMap/dataset/trainset/labels_colored"
-    for input_image in mapping:
+    for input_image in tqdm(mapping):
         input = os.path.join(val_folder, input_image)
         prompt = [os.path.join(train_folder, file) for file in mapping[input_image]]
         prompt_target = [os.path.join(train_color_folder, file.replace('.tif', '.png')) for file in mapping[input_image]]

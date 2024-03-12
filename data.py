@@ -277,11 +277,18 @@ class OEMOneClassDataset(OEMDataset):
         max_classes: int = 12, # including background
         patch_size: Tuple[int, int] = (16, 16),
         mask_ratio: float = 0.75,
+        negative_pairs_ratio: float = 0.3,
+        validation_ratio: float = 0.1,
         is_train: bool = True,
     ):
         super().__init__(root, mean, std, resize, max_classes, patch_size, mask_ratio, is_train)
+        self.negative_pairs_ratio = negative_pairs_ratio
+        self.validation_ratio = validation_ratio
         if not self.is_train:
-            self.color_palette = self._generate_color_palette()
+            self.color_palette = np.array([[0, 0, 0], [255, 255, 255]])
+
+    def _generate_color_palette(self):
+        return np.random.randint(0, 256, (2, 3)) # background and one class
         
     def _preload_dataset(self):
         self.images = []
@@ -300,12 +307,65 @@ class OEMOneClassDataset(OEMDataset):
                 self.total_pixels[j] += c_pixels
     
     def _generate_pairs(self):
-        # self.group_pairs 
-        pass
+        self.positive_pairs = {}
+        for key in self.groups:
+            self.positive_pairs[key] = list(permutations(self.groups[key], 2))
+            np.random.shuffle(self.positive_pairs[key])
+            cutoff_idx = int(len(self.positive_pairs[key]) * (1 - self.validation_ratio))
+            if self.is_train:
+                self.positive_pairs[key] = self.positive_pairs[key][:cutoff_idx]
+            else:
+                self.positive_pairs[key] = self.positive_pairs[key][cutoff_idx:]
+
+        self.positive_pairs = [pair for key in self.positive_pairs for pair in self.positive_pairs[key]]
+        self.negative_pairs = list(permutations(self.groups.keys(), 2))
+        np.random.shuffle(self.positive_pairs)
+        np.random.shuffle(self.negative_pairs)
+
+    def __len__(self):
+        len_negative_pairs = (len(self.positive_pairs) / (1 - self.negative_pairs_ratio)) * self.negative_pairs_ratio
+        return len(self.positive_pairs) + len_negative_pairs
 
     def _filter_pairs(self):
         pass
 
+    def __getitem__(self, idx):
+        if idx < len(self.positive_pairs):
+            img_idx1, ori_label1 = self.positive_pairs[idx][0]
+            img_idx2, ori_label2 = self.positive_pairs[idx][1]
+        else:
+            idx = (idx - len(self.positive_pairs)) % len(self.negative_pairs)
+            idx1, idx2 = self.negative_pairs[idx]
+            img_idx1, ori_label1 = self.groups[idx1][np.random.randint(len(self.groups[idx1]))]
+            img_idx2, ori_label2 = self.groups[idx2][np.random.randint(len(self.groups[idx2]))]
+
+            ori_label2 = np.zeros_like(ori_label2)
+
+        img1 = self.images[img_idx1]
+        img2 = self.images[img_idx2]
+
+        if self.is_train:
+            color_palette = self._generate_color_palette()
+        else:
+            color_palette = self.color_palette
+
+        label1 = self._lbl_random_color(ori_label1, color_palette)
+        label2 = self._lbl_random_color(ori_label2, color_palette)
+
+        img, label, ori_label = self._augment([img1, img2], [label1, label2], [ori_label1, ori_label2])
+        img = np.concatenate(img, axis=0)
+        label = np.concatenate(label, axis=0)
+        ori_label = np.concatenate(ori_label, axis=0)
+        
+        img = self._to_img_tensor(img)
+        label = self._to_img_tensor(label)
+        ori_label = torch.FloatTensor(ori_label)
+        
+        mask = self._generate_mask((img.shape[1], img.shape[2]), True)
+        valid = torch.ones_like(label)
+        seg_type = torch.zeros([1])
+        color_palette = torch.FloatTensor(color_palette)
+        return img, label, mask, valid, seg_type, ori_label, color_palette
 
 
 

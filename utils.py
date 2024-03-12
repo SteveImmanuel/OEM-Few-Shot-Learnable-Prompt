@@ -19,33 +19,32 @@ def get_logger(name: str, rank: int):
 
 def cmap_to_lbl(cmap: torch.Tensor, color_palette: torch.Tensor):
     B, H, W, C = cmap.shape
-    black = torch.zeros(3, dtype=color_palette.dtype, device=color_palette.device).reshape(1, 1, -1).expand(B, -1, -1)
-    ex_color_palette = torch.concat([black, color_palette], axis=1)
-    _, N, _ = ex_color_palette.shape
+    _, N, _ = color_palette.shape
     
-    dist_mat = torch.cdist(cmap.reshape(B, H * W, C), ex_color_palette, p=2)
+    dist_mat = torch.cdist(cmap.reshape(B, H * W, C), color_palette, p=2)
     dist_mat = dist_mat.reshape(B, H, W, N)
     label = torch.argmin(dist_mat, axis=3)
 
     result = torch.zeros_like(cmap)
     for i in range(B):
         for j in range(N):
-            result[i][label[i] == j] = ex_color_palette[i][j]
+            result[i][label[i] == j] = color_palette[i][j]
 
     return result, label
 
 def calculate_iou(pred: torch.Tensor, gt: torch.Tensor, mask: torch.Tensor, total_classes: int):
+    #total class includes background
     result = torch.zeros((total_classes, 2), dtype=pred.dtype, device=pred.device)
     masked_gt = mask * gt
     masked_pred = mask * pred
-    for i in range(1, total_classes + 1):
+    for i in range(total_classes):
         pred_total = (masked_pred == i)
         gt_total = (masked_gt == i)
         intersection = (pred_total & gt_total).sum()
         union = pred_total.sum() + gt_total.sum() - intersection
         # print(i, pred_total.sum(), gt_total.sum(), intersection, union)
-        result[i - 1][0] += intersection
-        result[i - 1][1] += union
+        result[i][0] += intersection
+        result[i][1] += union
     return result
 
 if __name__ == '__main__':

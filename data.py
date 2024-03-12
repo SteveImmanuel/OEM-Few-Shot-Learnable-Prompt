@@ -16,7 +16,7 @@ class OEMDataset(torch.utils.data.Dataset):
         mean:Iterable[float]=[0.485, 0.456, 0.406], 
         std:Iterable[float]=[0.229, 0.224, 0.225], 
         resize: Tuple[int, int] = (448, 448),
-        max_classes: int = 11, # excluding background
+        max_classes: int = 12, # including background
         patch_size: Tuple[int, int] = (16, 16),
         mask_ratio: float = 0.75,
         is_train: bool = True,
@@ -126,7 +126,7 @@ class OEMDataset(torch.utils.data.Dataset):
     def _lbl_random_color(self, label: np.ndarray, color_palette: np.ndarray):
         result = np.zeros((label.shape[0], label.shape[1], 3), dtype=np.uint8)
         for i in range(self.max_classes):
-            result[label == (i + 1)] = color_palette[i] # 0 is reserved for background
+            result[label == i] = color_palette[i]
         return result
 
     def _to_img_tensor(self, arr: np.ndarray):
@@ -193,7 +193,7 @@ class OEMDataset(torch.utils.data.Dataset):
             return len(self.same_class_pairs) + len(self.diff_class_pairs)
         return len(self.same_class_pairs)
 
-class OEMFullDataset(OEMDataset):
+class OEMHalfMaskDataset(OEMDataset):
     def __init__(
         self, 
         root:str, 
@@ -206,6 +206,8 @@ class OEMFullDataset(OEMDataset):
         is_train: bool = True,
     ):
         super().__init__(root, mean, std, resize, max_classes, patch_size, mask_ratio, is_train)
+        if not self.is_train:
+            self.color_palette = self._generate_color_palette()
     
     def _generate_pairs(self):
         indices = np.arange(len(self.paths))
@@ -224,16 +226,51 @@ class OEMFullDataset(OEMDataset):
 
         np.random.shuffle(self.same_class_pairs)
         np.random.shuffle(self.diff_class_pairs)
-        cut_off_idx = int(len(self.diff_class_pairs) * 0.2 )
+        cut_off_idx = int(0.95 * len(self.same_class_pairs))
         if self.is_train:
             self.same_class_pairs = self.same_class_pairs[:cut_off_idx]
         else:
             self.same_class_pairs = self.same_class_pairs[cut_off_idx:]
+    
+    def __len__(self):
+        return len(self.same_class_pairs)
+
+    def __getitem__(self, idx):
+        pair_idx1, pair_idx2 = self.same_class_pairs[idx]
+
+        if self.is_train and np.random.rand() > 0.5: # swap pair
+            pair_idx1, pair_idx2 = pair_idx2, pair_idx1
+
+        img1, ori_label1 = self.images[pair_idx1], self.labels[pair_idx1]
+        img2, ori_label2 = self.images[pair_idx2], self.labels[pair_idx2]
+
+        if self.is_train:
+            color_palette = self._generate_color_palette()
+        else:
+            color_palette = self.color_palette
+
+        label1 = self._lbl_random_color(ori_label1, color_palette)
+        label2 = self._lbl_random_color(ori_label2, color_palette)
+
+        img, label, ori_label = self._augment([img1, img2], [label1, label2], [ori_label1, ori_label2])
+        img = np.concatenate(img, axis=0)
+        label = np.concatenate(label, axis=0)
+        ori_label = np.concatenate(ori_label, axis=0)
+        
+        img = self._to_img_tensor(img)
+        label = self._to_img_tensor(label)
+        ori_label = torch.FloatTensor(ori_label)
+        
+        mask = self._generate_mask((img.shape[1], img.shape[2]), True)
+        valid = torch.ones_like(label)
+        seg_type = torch.zeros([1])
+        color_palette = torch.FloatTensor(color_palette)
+        return img, label, mask, valid, seg_type, ori_label, color_palette
 
 if __name__ == '__main__':
-    dataset = OEMDataset('/home/steve/Datasets/OpenEarthMap-FSS/trainset', is_train=True)
-    for i in tqdm(range(len(dataset))):
-        a = dataset[i]
+    dataset = OEMDataset('/disk3/steve/dataset/OpenEarthMap', is_train=True)
+    # for i in tqdm(range(len(dataset))):
+    #     a = dataset[i]
     # img, label = dataset[0]
     # img, label, mask, valid, seg_type, ori_label, color_palette = dataset[0]
     # for i in range(len(dataset))

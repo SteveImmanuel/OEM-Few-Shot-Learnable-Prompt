@@ -47,6 +47,22 @@ def calculate_iou(pred: torch.Tensor, gt: torch.Tensor, mask: torch.Tensor, tota
         result[i][1] += union
     return result
 
+def calculate_iou_one_class(pred: torch.Tensor, gt: torch.Tensor, mask: torch.Tensor, n_classes: int, class_label: torch.Tensor):
+    #total class includes background
+    result = torch.zeros((n_classes, 2), dtype=pred.dtype, device=pred.device)
+    class_mask = class_label[:, None, None]
+    masked_gt = mask * gt * class_mask
+    masked_pred = mask * pred * class_mask
+    for i in range(n_classes):
+        pred_total = (masked_pred == i)
+        gt_total = (masked_gt == i)
+        intersection = (pred_total & gt_total).sum()
+        union = pred_total.sum() + gt_total.sum() - intersection
+        # print(i, pred_total.sum(), gt_total.sum(), intersection, union)
+        result[i][0] += intersection
+        result[i][1] += union
+    return result
+
 if __name__ == '__main__':
     pred = torch.ones((5, 10, 10))
     gt = torch.ones((5, 10, 10))

@@ -91,7 +91,7 @@ class OEMNovelMixDataset(OEMDataset):
             valids.append(valid)
             ori_labels.append(ori_label)
 
-        seg_type = torch.zeros([1])
+        seg_type = torch.zeros([1+len(novel_files), 1])
         color_palette = torch.FloatTensor(color_palette)
         imgs, labels, masks = torch.stack(imgs), torch.stack(labels), torch.stack(masks)
         valids, ori_labels = torch.stack(valids), torch.stack(ori_labels)

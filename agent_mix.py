@@ -88,14 +88,14 @@ class AgentMix():
         seg_type: T.Tensor,
         is_train: bool,
     ):
-        img = img.to(self.gpu_id)
-        label = label.to(self.gpu_id)
-        mask = mask.to(self.gpu_id)
-        valid = valid.to(self.gpu_id)
-        seg_type = seg_type.to(self.gpu_id)
+        img = img.squeeze(0).to(self.gpu_id)
+        label = label.squeeze(0).to(self.gpu_id)
+        mask = mask.squeeze(0).to(self.gpu_id)
+        valid = valid.squeeze(0).to(self.gpu_id)
+        seg_type = seg_type.squeeze(0).to(self.gpu_id)
 
         with T.cuda.amp.autocast():
-            feature_ensemble = -1 # TODO: test change to 0 to enable
+            feature_ensemble = 0 # TODO: test change to 0 to enable
             loss, pred, bool_masked_pos = self.model(img, label, mask, valid, seg_type, feature_ensemble)
 
         if is_train:

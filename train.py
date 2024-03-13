@@ -11,7 +11,7 @@ from utils import *
 from torch.distributed import init_process_group, destroy_process_group
 from torch.utils.data.distributed import DistributedSampler
 from Painter.SegGPT.SegGPT_inference.models_seggpt import seggpt_vit_large_patch16_input896x448
-from data import OEMDataset
+from data import OEMDataset, OEMFullDataset
 
 def ddp_setup(rank: int, world_size: int):
     os.environ['MASTER_ADDR'] = 'localhost'
@@ -28,7 +28,7 @@ def main(rank: int, world_size: int, train_args: Dict):
     logger = get_logger(__name__, rank)
 
     logger.info('Preparing dataset')
-    train_dataset = OEMDataset(
+    train_dataset = OEMFullDataset(
         root = train_args['train_dataset_dir'], 
         max_classes = train_args['n_classes'],
         mean = train_args['image_mean'],
@@ -81,6 +81,6 @@ def main(rank: int, world_size: int, train_args: Dict):
 
 
 if __name__ == '__main__':
-    train_args = json.load(open('configs/base.json', 'r'))
+    train_args = json.load(open('configs/full.json', 'r'))
     world_size = T.cuda.device_count()
     mp.spawn(main, nprocs=world_size, args=(world_size, train_args))

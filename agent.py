@@ -7,7 +7,7 @@ import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
 from torch.nn.parallel import DistributedDataParallel as DDP
-from utils import get_logger, cmap_to_lbl, calculate_iou
+from utils import get_logger, cmap_to_lbl, calculate_iou, calculate_iou_one_class
 from typing import Dict
 from tqdm import tqdm
 from collections import deque
@@ -286,3 +286,144 @@ class Agent():
     def do_evaluation(self, test_dataloader: T.utils.data.DataLoader):
         deque(self.process_data(test_dataloader, False, 0), maxlen=0)
         self.logger.info(f'Loss: {self.last_loss:.5f}')
+
+
+class AgentOneClass(Agent):
+    def visualize(self, title:str, imgs: T.Tensor, labels: T.Tensor, preds: T.Tensor, discretized_cmaps: T.Tensor, masks: T.Tensor, class_label:T.tensor, counter:int = None):
+        if self.log_enabled and self.gpu_id == 0 and (self.counter % self.args['image_log_interval'] == 0 or counter is not None):
+            counter = counter if counter is not None else self.counter
+            idx = np.random.randint(0, len(preds))
+
+            input_img = imgs[idx].cpu()
+            label = labels[idx].cpu()
+            pred = preds[idx].cpu()
+            cmap = discretized_cmaps[idx].cpu()
+            mask = masks[idx].cpu().float()
+            masked_label = (1 - mask) * label  + mask * T.randn_like(mask)
+            c_label = class_label.cpu()[idx]
+            
+            result = T.concatenate([input_img, masked_label, label], axis=2)
+            result = T.permute(result, (1, 2, 0))
+            result = self.unnormalize(result)
+            
+            result = T.concatenate([result, pred, cmap / 255.0], axis=1)
+            self.summary_writer.add_image(f'{title}/{c_label}', result, counter, dataformats='HWC')
+
+    def iou(self, pred: T.tensor, label: T.tensor, mask: T.tensor, ori_label: T.tensor, color_palette: T.tensor, n_classes: int, class_label: T.tensor):
+        pred = self.model.module.unpatchify(pred) # B, 3, H, W
+        mask = mask[:, :, None].repeat(1, 1, self.model.module.patch_size**2 * 3)
+        mask = self.model.module.unpatchify(mask)
+        mask = mask.to(pred.device)
+        ori_label = ori_label.to(pred.device)
+        color_palette = color_palette.to(pred.device)
+        class_label = class_label.to(pred.device)
+
+        pred = T.permute(pred, (0, 2, 3, 1))  # B, H, W, 3
+        pred = self.unnormalize(pred)
+        discretized_cmap, pred_label = cmap_to_lbl(pred * 255.0, color_palette)
+        result = calculate_iou_one_class(pred_label, ori_label, mask[:, 0, :, :], n_classes, class_label)
+        return result, pred, discretized_cmap, mask
+
+    def step(
+        self,
+        img: T.Tensor,
+        label: T.Tensor,
+        mask: T.Tensor,
+        valid: T.Tensor,
+        seg_type: T.Tensor,
+        class_weight: T.Tensor,
+        is_train: bool,
+    ):
+        img = img.to(self.gpu_id)
+        label = label.to(self.gpu_id)
+        mask = mask.to(self.gpu_id)
+        valid = valid.to(self.gpu_id)
+        seg_type = seg_type.to(self.gpu_id)
+        class_weight = class_weight.to(self.gpu_id)
+
+        with T.cuda.amp.autocast():
+            feature_ensemble = -1 # TODO: test change to 0 to enable
+            loss, pred, bool_masked_pos = self.model(img, label, mask, valid, seg_type, feature_ensemble)
+        final_loss = (loss * class_weight).mean()
+
+        if is_train:
+            self.optim.zero_grad()
+            self.scaler.scale(final_loss).backward()
+            self.scaler.step(self.optim)
+            self.scaler.update()
+        
+        return final_loss.item(), pred, bool_masked_pos
+
+    def process_data(self, dl: T.utils.data.DataLoader, is_train: bool, epoch: int):
+        if is_train:
+            self.logger.info('Training Phase')
+        elif not self.is_eval:
+            self.logger.info('Validation Phase')
+
+        n_classes = dl.dataset.max_classes
+        iou = T.zeros((n_classes, 2), device=self.gpu_id)
+        batch_losses = T.zeros(2, device=self.gpu_id)
+
+        pbar = tqdm(dl, disable=self.gpu_id != 0)
+
+        for i, (img, label, mask, valid, seg_type, ori_label, color_palette, class_weight, class_label) in enumerate(pbar):
+            if not is_train:
+                self.model.eval()
+                with T.no_grad():
+                    b_loss, b_pred, b_mask = self.step(img, label, mask, valid, seg_type, class_weight, is_train)
+                
+                c_iou, preds, cmaps, masks = self.iou(b_pred, label, mask, ori_label, color_palette, n_classes, class_label)
+                val_counter = epoch * len(dl) + i
+                self.visualize(f'Validation', img, label, preds, cmaps, masks, counter=val_counter, class_label=class_label)
+            else:
+                self.model.train()
+                b_loss, b_pred, b_mask = self.step(img, label, mask, valid, seg_type, class_weight, is_train)
+                self.counter += 1
+
+                self.scheduler.step()
+                
+                c_iou, preds, cmaps, masks = self.iou(b_pred, label, mask, ori_label, color_palette, n_classes, class_label)
+
+                self.write_summary(f'LR Scheduler', self.optim.param_groups[0]['lr'], self.counter)
+                self.write_summary('Training/Batch Loss', b_loss, self.counter)
+
+                self.visualize(f'Training', img, label, preds, cmaps, masks, class_label=class_label)
+                yield i
+
+
+            if self.gpu_id != 0:  # reset for gpu rank > 0
+                batch_losses = T.zeros(2, device=self.gpu_id)
+                iou = T.zeros((n_classes, 2), device=self.gpu_id)
+
+            batch_losses[0] += b_loss
+            batch_losses[1] += 1
+            iou = iou + c_iou
+            
+            T.distributed.reduce(batch_losses, dst=0)
+            T.distributed.reduce(iou, dst=0)
+
+            avg_losses = batch_losses[0] / batch_losses[1]
+            m_iou = 100 * iou[:, 0] / (iou[:, 1] + 1e-10)
+            base_m_iou = m_iou[1:8].mean()
+            novel_m_iou = m_iou[8:].mean()
+            weighted_m_iou = 0.4 * base_m_iou + 0.6 * novel_m_iou
+            
+            pbar.set_postfix({
+                'Loss': f'{avg_losses:.5f}',
+                'B mIoU': f'{base_m_iou:.3f}',
+                'N mIoU': f'{novel_m_iou:.3f}',
+                'W mIoU': f'{weighted_m_iou:.3f}',
+                'IoU': ['%.3f' % x for x in m_iou.tolist()]
+            })
+
+        if not is_train:
+            self.last_loss = avg_losses
+            self.last_metric_val = weighted_m_iou
+
+            self.write_summary('Validation/Loss', avg_losses, epoch)
+            self.write_summary('Validation/mIoU', weighted_m_iou, epoch)
+        else:
+            self.write_summary('Training/Loss', avg_losses, epoch)
+            self.write_summary('Training/mIoU', weighted_m_iou, epoch)
+
+        yield -1

@@ -77,6 +77,8 @@ class OEMDataset(torch.utils.data.Dataset):
                 self.same_class_pairs.append(pair)
             else:
                 self.diff_class_pairs.append(pair)
+        np.random.shuffle(self.same_class_pairs)
+        np.random.shuffle(self.diff_class_pairs)
 
     def _load_img(self, path):
         img = Image.open(path).convert('RGB')
@@ -191,8 +193,30 @@ class OEMDataset(torch.utils.data.Dataset):
     def __len__(self):
         if self.is_train:
             return len(self.same_class_pairs) + len(self.diff_class_pairs)
-        return len(self.same_class_pairs)
+        return min(len(self.same_class_pairs), 1600)
 
+class OEMFullDataset(OEMDataset):
+    def __init__(
+        self, 
+        root:str, 
+        mean:Iterable[float]=[0.485, 0.456, 0.406], 
+        std:Iterable[float]=[0.229, 0.224, 0.225], 
+        resize: Tuple[int, int] = (448, 448),
+        max_classes: int = 12, # including background
+        patch_size: Tuple[int, int] = (16, 16),
+        mask_ratio: float = 0.75,
+        is_train: bool = True,
+    ):
+        super().__init__(root, mean, std, resize, max_classes, patch_size, mask_ratio, is_train)
+
+        # reduce class index by 1 if it is not 0
+        for i in range(len(self.labels)):
+            l = self.labels[i]
+            l[l > 0] -= 1
+            self.labels[i] = l
+
+        self.same_class_pairs = self.same_class_pairs[:len(self.diff_class_pairs)]    
+    
 class OEMHalfMaskDataset(OEMDataset):
     def __init__(
         self, 
@@ -281,14 +305,25 @@ class OEMOneClassDataset(OEMDataset):
         validation_ratio: float = 0.1,
         is_train: bool = True,
     ):
-        super().__init__(root, mean, std, resize, max_classes, patch_size, mask_ratio, is_train)
         self.negative_pairs_ratio = negative_pairs_ratio
         self.validation_ratio = validation_ratio
+
+        super().__init__(root, mean, std, resize, max_classes, patch_size, mask_ratio, is_train)
+
         if not self.is_train:
             self.color_palette = np.array([[0, 0, 0], [255, 255, 255]])
+        self.class_weights = 20 / (np.log(list(self.total_pixels.values())))
+        self.class_weights = np.concatenate([min(self.class_weights).reshape(1), self.class_weights], axis=0)
+        self.class_weights = self.class_weights / min(self.class_weights)
 
     def _generate_color_palette(self):
         return np.random.randint(0, 256, (2, 3)) # background and one class
+
+    def _lbl_random_color(self, label: np.ndarray, color_palette: np.ndarray):
+        result = np.zeros((label.shape[0], label.shape[1], 3), dtype=np.uint8)
+        for i in range(2):
+            result[label == i] = color_palette[i]
+        return result
         
     def _preload_dataset(self):
         self.images = []
@@ -311,19 +346,19 @@ class OEMOneClassDataset(OEMDataset):
         for key in self.groups:
             self.positive_pairs[key] = list(permutations(self.groups[key], 2))
             np.random.shuffle(self.positive_pairs[key])
-            cutoff_idx = int(len(self.positive_pairs[key]) * (1 - self.validation_ratio))
+            cutoff_idx = min(int(len(self.positive_pairs[key]) * (self.validation_ratio)), 200)
             if self.is_train:
-                self.positive_pairs[key] = self.positive_pairs[key][:cutoff_idx]
-            else:
                 self.positive_pairs[key] = self.positive_pairs[key][cutoff_idx:]
+            else:
+                self.positive_pairs[key] = self.positive_pairs[key][:cutoff_idx]
 
-        self.positive_pairs = [pair for key in self.positive_pairs for pair in self.positive_pairs[key]]
+        self.positive_pairs = [(key, *pair)  for key in self.positive_pairs for pair in self.positive_pairs[key]]
         self.negative_pairs = list(permutations(self.groups.keys(), 2))
         np.random.shuffle(self.positive_pairs)
         np.random.shuffle(self.negative_pairs)
 
     def __len__(self):
-        len_negative_pairs = (len(self.positive_pairs) / (1 - self.negative_pairs_ratio)) * self.negative_pairs_ratio
+        len_negative_pairs = int((len(self.positive_pairs) / (1 - self.negative_pairs_ratio)) * self.negative_pairs_ratio)
         return len(self.positive_pairs) + len_negative_pairs
 
     def _filter_pairs(self):
@@ -331,16 +366,17 @@ class OEMOneClassDataset(OEMDataset):
 
     def __getitem__(self, idx):
         if idx < len(self.positive_pairs):
-            img_idx1, ori_label1 = self.positive_pairs[idx][0]
-            img_idx2, ori_label2 = self.positive_pairs[idx][1]
+            class_label = self.positive_pairs[idx][0]
+            img_idx1, ori_label1 = self.positive_pairs[idx][1]
+            img_idx2, ori_label2 = self.positive_pairs[idx][2]
         else:
+            class_label = 0
             idx = (idx - len(self.positive_pairs)) % len(self.negative_pairs)
             idx1, idx2 = self.negative_pairs[idx]
             img_idx1, ori_label1 = self.groups[idx1][np.random.randint(len(self.groups[idx1]))]
             img_idx2, ori_label2 = self.groups[idx2][np.random.randint(len(self.groups[idx2]))]
 
             ori_label2 = np.zeros_like(ori_label2)
-
         img1 = self.images[img_idx1]
         img2 = self.images[img_idx2]
 
@@ -365,12 +401,54 @@ class OEMOneClassDataset(OEMDataset):
         valid = torch.ones_like(label)
         seg_type = torch.zeros([1])
         color_palette = torch.FloatTensor(color_palette)
-        return img, label, mask, valid, seg_type, ori_label, color_palette
+        class_weight = torch.tensor(self.class_weights[class_label])
+        class_label = torch.tensor(class_label if class_label != 0 else -1) # for IoU calculation in negative pairs
+        return img, label, mask, valid, seg_type, ori_label, color_palette, class_weight, class_label
+
+class OEMOneClassSMDataset(OEMOneClassDataset):
+    def __init__(
+        self, 
+        root:str, 
+        include_class: List[int],
+        mean:Iterable[float]=[0.485, 0.456, 0.406], 
+        std:Iterable[float]=[0.229, 0.224, 0.225], 
+        resize: Tuple[int, int] = (448, 448),
+        max_classes: int = 12, # including background
+        patch_size: Tuple[int, int] = (16, 16),
+        mask_ratio: float = 0.75,
+        negative_pairs_ratio: float = 0.3,
+        validation_ratio: float = 0.1,
+        is_train: bool = True,
+    ):
+        self.include_class = set(include_class)
+        super().__init__(root, mean, std, resize, max_classes, patch_size, mask_ratio, negative_pairs_ratio, validation_ratio, is_train)
 
 
+    def _generate_pairs(self):
+        self.positive_pairs = {}
+        for key in self.groups:
+            self.positive_pairs[key] = list(permutations(self.groups[key], 2))
+            np.random.shuffle(self.positive_pairs[key])
+            cutoff_idx = min(int(len(self.positive_pairs[key]) * (self.validation_ratio)), 200)
+            if self.is_train:
+                self.positive_pairs[key] = self.positive_pairs[key][cutoff_idx:]
+            else:
+                self.positive_pairs[key] = self.positive_pairs[key][:cutoff_idx]
+        
+        keys = list(self.positive_pairs.keys())
+        for key in keys:
+            if key not in self.include_class:
+                del self.positive_pairs[key]
+
+        self.positive_pairs = [(key, *pair)  for key in self.positive_pairs for pair in self.positive_pairs[key]]
+        self.negative_pairs = list(permutations(self.groups.keys(), 2))
+        self.negative_pairs = [x for x in self.negative_pairs if x[0] in self.include_class]
+        print('Total positive pairs:', len(self.positive_pairs))
+        np.random.shuffle(self.positive_pairs)
+        np.random.shuffle(self.negative_pairs)
 
 if __name__ == '__main__':
-    dataset = OEMOneClassDataset('/home/steve/Datasets/OpenEarthMap-FSS/trainset', is_train=True)
+    dataset = OEMOneClassDataset('/disk3/steve/dataset/OpenEarthMap-FSS/evalset', is_train=True)
     # for i in tqdm(range(len(dataset))):
     #     a = dataset[i]
     # img, label = dataset[0]

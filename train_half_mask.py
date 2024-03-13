@@ -81,6 +81,6 @@ def main(rank: int, world_size: int, train_args: Dict):
 
 
 if __name__ == '__main__':
-    train_args = json.load(open('configs/full_phase1.json', 'r'))
+    train_args = json.load(open('configs/half_mask.json', 'r'))
     world_size = T.cuda.device_count()
     mp.spawn(main, nprocs=world_size, args=(world_size, train_args))

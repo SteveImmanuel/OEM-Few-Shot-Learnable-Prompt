@@ -447,8 +447,92 @@ class OEMOneClassSMDataset(OEMOneClassDataset):
         np.random.shuffle(self.positive_pairs)
         np.random.shuffle(self.negative_pairs)
 
+class OEMAdapterDataset(OEMDataset):
+    def __init__(
+        self, 
+        root:str, 
+        class_idx: int,
+        mean:Iterable[float]=[0.485, 0.456, 0.406], 
+        std:Iterable[float]=[0.229, 0.224, 0.225], 
+        resize: Tuple[int, int] = (448, 448),
+        max_classes: int = 12, # including background
+        patch_size: Tuple[int, int] = (16, 16),
+        mask_ratio: float = 0.75,
+        validation_ratio: float = 0.1,
+        is_train: bool = True,
+    ):
+        self.class_idx = class_idx
+        self.validation_ratio = validation_ratio
+        
+        super().__init__(root, mean, std, resize, max_classes, patch_size, mask_ratio, is_train)
+        
+        if not self.is_train:
+            self.color_palette = np.array([[0, 0, 0], [255, 255, 255]])
+
+    def _preload_dataset(self):
+        self.images = []
+        self.labels = []
+        for img_path, label_path in tqdm(self.paths, desc='Caching images and grouping labels'):
+            img = self._load_img(img_path)
+            label = self._load_lbl(label_path)
+
+            mask = label == self.class_idx
+            c_pixels = mask.sum()
+            if c_pixels > 0:
+                self.images.append(img)
+                self.labels.append(mask.astype(np.uint8))
+        
+        cut_off_idx = int(len(self.images) * (1 - self.validation_ratio))
+        if self.is_train:
+            self.images = self.images[:cut_off_idx]
+            self.labels = self.labels[:cut_off_idx]
+        else:
+            self.images = self.images[cut_off_idx:]
+            self.labels = self.labels[cut_off_idx:]
+
+    def _filter_pairs(self):
+        pass
+    
+    def _generate_pairs(self):
+        pass
+
+    def __len__(self):
+        return len(self.images)
+
+    def _generate_color_palette(self):
+        return np.random.randint(0, 256, (2, 3)) # background and one class
+
+    def _lbl_random_color(self, label: np.ndarray, color_palette: np.ndarray):
+        result = np.zeros((label.shape[0], label.shape[1], 3), dtype=np.uint8)
+        for i in range(2):
+            result[label == i] = color_palette[i]
+        return result
+
+    def __getitem__(self, idx):
+        img = self.images[idx]
+        ori_label = self.labels[idx]
+
+        if self.is_train:
+            color_palette = self._generate_color_palette()
+        else:
+            color_palette = self.color_palette
+
+        label = self._lbl_random_color(ori_label, color_palette)
+
+        img, label, ori_label = self._augment([img], [label], [ori_label])
+        img = self._to_img_tensor(img[0])
+        label = self._to_img_tensor(label[0])
+        ori_label = torch.FloatTensor(ori_label[0])
+        
+        mask = self._generate_mask((img.shape[1] * 2, img.shape[2]), True)
+        valid = torch.ones(label.shape[0], label.shape[1] * 2, label.shape[2])
+        seg_type = torch.zeros([1])
+        color_palette = torch.FloatTensor(color_palette)
+        return img, label, mask, valid, seg_type, ori_label, color_palette
+
+    
 if __name__ == '__main__':
-    dataset = OEMOneClassDataset('/disk3/steve/dataset/OpenEarthMap-FSS/evalset', is_train=True)
+    dataset = OEMAdapterDataset('/home/steve/Datasets/OpenEarthMap-FSS/valset', is_train=True, class_idx=9)
     # for i in tqdm(range(len(dataset))):
     #     a = dataset[i]
     # img, label = dataset[0]

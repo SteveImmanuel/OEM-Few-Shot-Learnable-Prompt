@@ -167,3 +167,4 @@ cmap_*
 color*
 label*
 *.pt
+*.npz

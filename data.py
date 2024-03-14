@@ -522,7 +522,7 @@ class OEMAdapterDataset(OEMDataset):
         img, label, ori_label = self._augment([img], [label], [ori_label])
         img = self._to_img_tensor(img[0])
         label = self._to_img_tensor(label[0])
-        ori_label = torch.FloatTensor(ori_label[0])
+        ori_label = torch.FloatTensor(ori_label[0].copy())
         
         mask = self._generate_mask((img.shape[1] * 2, img.shape[2]), True)
         valid = torch.ones(label.shape[0], label.shape[1] * 2, label.shape[2])
@@ -533,6 +533,7 @@ class OEMAdapterDataset(OEMDataset):
     
 if __name__ == '__main__':
     dataset = OEMAdapterDataset('/home/steve/Datasets/OpenEarthMap-FSS/valset', is_train=True, class_idx=9)
+    a = dataset[0]
     # for i in tqdm(range(len(dataset))):
     #     a = dataset[i]
     # img, label = dataset[0]

@@ -108,13 +108,18 @@ class OEMDataset(torch.utils.data.Dataset):
         return np.random.randint(0, 256, (self.max_classes, 3))
     
     def _init_augmentation(self):
-        self.augment_all = iaa.Sequential([
-            iaa.Fliplr(0.5),
-            iaa.Flipud(0.5),
-        ])
-        self.augment_img = iaa.Sequential([ # does not change relative positions
-            iaa.GaussianBlur((0, 0.05))
-        ])
+        if self.is_train:
+            self.augment_all = iaa.Sequential([
+                iaa.Fliplr(0.5),
+                iaa.Flipud(0.5),
+                iaa.CropToFixedSize(448, 448)
+            ])
+            self.augment_img = iaa.Sequential([ # does not change relative positions
+                iaa.GaussianBlur((0, 0.1))
+            ])
+        else:
+            self.augment_all = iaa.Sequential([])
+            self.augment_img = iaa.Sequential([])
     
     def _augment(self, img: List[np.ndarray], label: List[np.ndarray], ori_label: List[np.ndarray]):
         aug_all = self.augment_all.to_deterministic()
@@ -195,6 +200,26 @@ class OEMDataset(torch.utils.data.Dataset):
             return len(self.same_class_pairs) + len(self.diff_class_pairs)
         return min(len(self.same_class_pairs), 1600)
 
+class OEMFixedColorDataset(OEMDataset):
+    def _generate_color_palette(self):
+        color = np.array([
+            (0, 0,  0),
+            (40, 130,  72),
+            (255, 237, 2),
+            (222, 173,  100),
+            (255,  0, 0),
+            (255, 255, 255),
+            (59,  17, 243),
+            (114,   6,  39),
+        ])
+        np.random.shuffle(color)
+        return color
+    
+    def __len__(self):
+        if self.is_train:
+            return len(self.same_class_pairs) + len(self.diff_class_pairs)
+        return len(self.same_class_pairs)
+
 class OEMFullDataset(OEMDataset):
     def __init__(
         self, 
@@ -216,6 +241,28 @@ class OEMFullDataset(OEMDataset):
             self.labels[i] = l
 
         self.same_class_pairs = self.same_class_pairs[:len(self.diff_class_pairs)]    
+
+class OEMFullHalfMaskDataset(OEMFullDataset):
+    def __init__(
+        self, 
+        root:str, 
+        mean:Iterable[float]=[0.485, 0.456, 0.406], 
+        std:Iterable[float]=[0.229, 0.224, 0.225], 
+        resize: Tuple[int, int] = (448, 448),
+        max_classes: int = 12, # including background
+        patch_size: Tuple[int, int] = (16, 16),
+        mask_ratio: float = 0.75,
+        is_train: bool = True,
+    ):
+        super().__init__(root, mean, std, resize, max_classes, patch_size, mask_ratio, is_train)
+        self.diff_class_pairs = []
+
+    def _generate_mask(self, img_shape: Tuple[int, int], is_half: bool = False):
+        # 1 means masked, 0 means not masked
+        total_patch = (img_shape[0] // self.patch_size[0]) * (img_shape[1] // self.patch_size[1])
+        mask = torch.zeros(total_patch, dtype=torch.float32)
+        mask[total_patch//2:] = 1
+        return mask
     
 class OEMHalfMaskDataset(OEMDataset):
     def __init__(
@@ -235,7 +282,7 @@ class OEMHalfMaskDataset(OEMDataset):
     
     def _generate_pairs(self):
         indices = np.arange(len(self.paths))
-        self.pairs = list(combinations(indices, 2))
+        self.pairs = list(permutations(indices, 2))
 
     def _filter_pairs(self):
         self.same_class_pairs = []
@@ -290,6 +337,27 @@ class OEMHalfMaskDataset(OEMDataset):
         seg_type = torch.zeros([1])
         color_palette = torch.FloatTensor(color_palette)
         return img, label, mask, valid, seg_type, ori_label, color_palette
+
+class OEMHalfMaskFixedColorDataset(OEMHalfMaskDataset):
+    def _generate_color_palette(self):
+        return np.array([
+            (0, 0,  0),
+            (40, 130,  72),
+            (255, 237, 2),
+            (222, 173,  100),
+            (255,  0, 0),
+            (255, 255, 255),
+            (59,  17, 243),
+            (114,   6,  39),
+        ])
+    
+    def _generate_pairs(self):
+        indices = np.arange(len(self.paths))
+        if self.is_train:
+            self.pairs = list(combinations(indices, 2))
+        else:
+            self.pairs = list(permutations(indices, 2))
+
 
 class OEMOneClassDataset(OEMDataset):
     def __init__(
@@ -455,7 +523,6 @@ class OEMAdapterDataset(OEMDataset):
         mean:Iterable[float]=[0.485, 0.456, 0.406], 
         std:Iterable[float]=[0.229, 0.224, 0.225], 
         resize: Tuple[int, int] = (448, 448),
-        max_classes: int = 12, # including background
         patch_size: Tuple[int, int] = (16, 16),
         mask_ratio: float = 0.75,
         validation_ratio: float = 0.1,
@@ -464,11 +531,14 @@ class OEMAdapterDataset(OEMDataset):
         self.class_idx = class_idx
         self.validation_ratio = validation_ratio
         
-        super().__init__(root, mean, std, resize, max_classes, patch_size, mask_ratio, is_train)
-        
-        if not self.is_train:
-            self.color_palette = np.array([[0, 0, 0], [255, 255, 255]])
+        super().__init__(root, mean, std, resize, 2, patch_size, mask_ratio, is_train)
 
+    def _generate_mask(self, img_shape: Tuple[int, int]):
+        total_patch = (img_shape[0] // self.patch_size[0]) * (img_shape[1] // self.patch_size[1])
+        mask = torch.zeros(total_patch, dtype=torch.float32)
+        mask[total_patch//2:] = 1
+        return mask
+        
     def _preload_dataset(self):
         self.images = []
         self.labels = []
@@ -482,13 +552,13 @@ class OEMAdapterDataset(OEMDataset):
                 self.images.append(img)
                 self.labels.append(mask.astype(np.uint8))
         
-        cut_off_idx = int(len(self.images) * (1 - self.validation_ratio))
-        if self.is_train:
-            self.images = self.images[:cut_off_idx]
-            self.labels = self.labels[:cut_off_idx]
-        else:
-            self.images = self.images[cut_off_idx:]
-            self.labels = self.labels[cut_off_idx:]
+        # cut_off_idx = int(len(self.images) * (1 - self.validation_ratio))
+        # if self.is_train:
+        #     self.images = self.images[:cut_off_idx]
+        #     self.labels = self.labels[:cut_off_idx]
+        # else:
+        #     self.images = self.images[cut_off_idx:]
+        #     self.labels = self.labels[cut_off_idx:]
 
     def _filter_pairs(self):
         pass
@@ -497,25 +567,16 @@ class OEMAdapterDataset(OEMDataset):
         pass
 
     def __len__(self):
+        if self.is_train:
+            return len(self.images) * 200
         return len(self.images)
 
-    def _generate_color_palette(self):
-        return np.random.randint(0, 256, (2, 3)) # background and one class
-
-    def _lbl_random_color(self, label: np.ndarray, color_palette: np.ndarray):
-        result = np.zeros((label.shape[0], label.shape[1], 3), dtype=np.uint8)
-        for i in range(2):
-            result[label == i] = color_palette[i]
-        return result
-
     def __getitem__(self, idx):
+        idx %= len(self.images)
         img = self.images[idx]
         ori_label = self.labels[idx]
 
-        if self.is_train:
-            color_palette = self._generate_color_palette()
-        else:
-            color_palette = self.color_palette
+        color_palette = np.array([[0, 0, 0], [255, 255, 255]])
 
         label = self._lbl_random_color(ori_label, color_palette)
 
@@ -524,7 +585,11 @@ class OEMAdapterDataset(OEMDataset):
         label = self._to_img_tensor(label[0])
         ori_label = torch.FloatTensor(ori_label[0].copy())
         
-        mask = self._generate_mask((img.shape[1] * 2, img.shape[2]), True)
+        mask = self._generate_mask((img.shape[1] * 2, img.shape[2]))
+        # lef_valid = torch.zeros(label.shape[0], label.shape[1], label.shape[2])
+        # right_valid = torch.ones(label.shape[0], label.shape[1], label.shape[2])
+        # valid = torch.cat([lef_valid, right_valid], dim=1)
+        # valid = torch.ones([lef_valid, right_valid], dim=1)
         valid = torch.ones(label.shape[0], label.shape[1] * 2, label.shape[2])
         seg_type = torch.zeros([1])
         color_palette = torch.FloatTensor(color_palette)
@@ -532,8 +597,9 @@ class OEMAdapterDataset(OEMDataset):
 
     
 if __name__ == '__main__':
-    dataset = OEMAdapterDataset('/home/steve/Datasets/OpenEarthMap-FSS/valset', is_train=True, class_idx=9)
+    dataset = OEMAdapterDataset('/disk3/steve/dataset/OpenEarthMap-FSS/valset', is_train=True, class_idx=8)
     a = dataset[0]
+    print(len(dataset))
     # for i in tqdm(range(len(dataset))):
     #     a = dataset[i]
     # img, label = dataset[0]

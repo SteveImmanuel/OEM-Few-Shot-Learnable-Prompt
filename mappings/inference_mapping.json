@@ -1,0 +1,143 @@
+{
+  "accra_29.tif": [
+    "accra_27.tif",
+    "accra_31.tif",
+    "accra_8.tif",
+    "accra_37.tif"
+  ],
+  "al_qurnah_62.tif": [
+    "al_qurnah_24.tif",
+    "al_qurnah_63.tif"
+  ],
+  "bielefeld_69.tif": [
+    "bielefeld_51.tif",
+    "bielefeld_2.tif",
+    "bielefeld_1.tif",
+    "bielefeld_5.tif"
+  ],
+  "dolnoslaskie_38.tif": [
+    "dolnoslaskie_32.tif", "koeln_21.tif", "san_tome_28.tif"
+  ],
+  "duesseldorf_58.tif": [
+    "duesseldorf_52.tif",
+    "duesseldorf_44.tif",
+    "duesseldorf_31.tif",
+    "duesseldorf_66.tif",
+    "duesseldorf_5.tif"
+  ],
+  "kyoto_18.tif": [
+    "kyoto_55.tif",
+    "kyoto_30.tif",
+    "kyoto_47.tif",
+    "kyoto_8.tif",
+    "kyoto_13.tif"
+  ],
+  "kyoto_50.tif": [
+    "kyoto_55.tif",
+    "kyoto_30.tif",
+    "kyoto_47.tif",
+    "kyoto_8.tif",
+    "kyoto_13.tif"
+  ],
+  "kyoto_65.tif": [
+    "kyoto_55.tif",
+    "kyoto_30.tif",
+    "kyoto_47.tif",
+    "kyoto_8.tif",
+    "kyoto_13.tif"
+  ],
+  "kyoto_68.tif": [
+    "kyoto_55.tif",
+    "kyoto_30.tif",
+    "kyoto_47.tif",
+    "kyoto_8.tif",
+    "kyoto_13.tif"
+  ],
+  "lima_15.tif": [
+    "lima_36.tif",
+    "lima_2.tif"
+  ],
+  "lohur_11.tif": [
+    "lohur_20.tif"
+  ],
+  "lohur_29.tif": [
+    "lohur_20.tif"
+  ],
+  "lohur_7.tif": [
+    "lohur_20.tif"
+  ],
+  "lubuskie_23.tif": [
+    "lubuskie_16.tif",
+    "lubuskie_15.tif",
+    "lubuskie_20.tif"
+  ],
+  "maputo_6.tif": [
+    "maputo_16.tif",
+    "maputo_12.tif",
+    "maputo_10.tif",
+    "maputo_8.tif"
+  ],
+  "monrovia_29.tif": [
+    "monrovia_25.tif",
+    "monrovia_21.tif"
+  ],
+  "muenster_60.tif": [
+    "muenster_65.tif",
+    "muenster_53.tif",
+    "muenster_51.tif",
+    "muenster_28.tif",
+    "muenster_9.tif",
+    "muenster_58.tif"
+  ],
+  "ngaoundere_36.tif": [
+    "ngaoundere_58.tif",
+    "ngaoundere_20.tif"
+  ],
+  "rio_7.tif": [
+    "rio_52.tif",
+    "rio_63.tif",
+    "rio_43.tif"
+  ],
+  "rotterdam_10.tif": ["koeln_21.tif", "kyoto_47.tif"],
+  "rotterdam_21.tif": ["koeln_21.tif", "kyoto_47.tif"],
+  "rotterdam_22.tif": ["koeln_21.tif", "kyoto_47.tif"],
+  "santiago_62.tif": [
+    "santiago_59.tif",
+    "santiago_63.tif",
+    "santiago_32.tif"
+  ],
+  "shanghai_26.tif": [
+    "shanghai_64.tif"
+  ],
+  "shanghai_65.tif": [
+    "shanghai_64.tif"
+  ],
+  "slaskie_28.tif": [
+    "slaskie_34.tif",
+    "slaskie_4.tif",
+    "slaskie_33.tif"
+  ],
+  "svaneti_13.tif": [
+    "svaneti_38.tif",
+    "svaneti_35.tif",
+    "svaneti_8.tif",
+    "svaneti_61.tif",
+    "svaneti_51.tif",
+    "svaneti_20.tif",
+    "svaneti_17.tif"
+  ],
+  "tokyo_63.tif": [
+    "tokyo_18.tif",
+    "tokyo_65.tif",
+    "tokyo_14.tif",
+    "tokyo_11.tif",
+    "tokyo_32.tif",
+    "tokyo_1.tif"
+  ],
+  "tonga_48.tif": [
+    "tonga_60.tif"
+  ],
+  "tonga_64.tif": [
+    "tonga_60.tif"
+  ]
+}

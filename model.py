@@ -15,11 +15,14 @@ class AdapterSegGPT(T.nn.Module):
             param.requires_grad = False
 
         self.image_size = image_size
-        self.image_tensor = T.nn.Parameter(T.zeros((1, 3, self.image_size[0], self.image_size[1]), dtype=T.float32), requires_grad=True)
-        self.mask_tensor = T.nn.Parameter(T.zeros((1, 3, self.image_size[0], self.image_size[1]), dtype=T.float32), requires_grad=True)
-        
-        T.nn.init.normal_(self.image_tensor, mean=0.0, std=0.02)
-        T.nn.init.normal_(self.mask_tensor, mean=0.0, std=0.02)
+        self.image_tensor = self.init_weight((1, 3, self.image_size[0], self.image_size[1]))
+        self.mask_tensor = self.init_weight((1, 3, self.image_size[0], self.image_size[1]))
+
+    def init_weight(self, size: Tuple):
+        weight = T.empty(size, requires_grad=True)
+        # weight = T.nn.init.xavier_normal_(weight)
+        weight = T.nn.init.kaiming_normal_(weight)
+        return T.nn.Parameter(weight, requires_grad=True)
 
 
     def forward(self, imgs, tgts, bool_masked_pos=None, valid=None, seg_type=None, merge_between_batch=-1):
@@ -29,9 +32,8 @@ class AdapterSegGPT(T.nn.Module):
         img_tensor = self.image_tensor.expand(B, -1, -1, -1)
         mask_tensor = self.mask_tensor.expand(B, -1, -1, -1)
         
-        input_imgs = T.cat((imgs, img_tensor), dim=2)
-        input_tgts = T.cat((tgts, mask_tensor), dim=2)
-
+        input_imgs = T.cat((img_tensor, imgs), dim=2)
+        input_tgts = T.cat((mask_tensor, tgts), dim=2)
 
         return self.seggpt.forward(input_imgs, input_tgts, bool_masked_pos, valid, seg_type, merge_between_batch)
 

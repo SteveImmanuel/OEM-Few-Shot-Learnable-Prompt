@@ -3,6 +3,7 @@ import os
 import argparse
 import torch as T
 import json
+import torch.nn.functional as F
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
 from cosine_annealing_warmup import CosineAnnealingWarmupRestarts
@@ -312,27 +313,68 @@ class AgentAdapter(Agent):
             self.scaler.scale(loss).backward()
             self.scaler.step(self.optim)
             self.scaler.update()
-        
+        # print(pred.shape, pred[0].shape)
+        # print(tgts.shape, tgts[0].shape)
+        # a = self.model.module.seggpt.unpatchify(pred)
+        # a = a[0].permute(1,2,0)
+        # b = tgts[0].permute(1,2,0)
+        # print(a.shape, b.shape)
+        # a = a[a.shape[0]//2:, :, :]
+        # b = b[b.shape[0]//2:, :, :]
+        # print(a.shape, b.shape)
+        # c = T.cat([a, b], dim=1)
+        # print('loss before unnormalized', F.smooth_l1_loss(a, b, beta=0.01))
+        # self.summary_writer.add_image('testing view', c, 0, dataformats='HWC')
         return loss.item(), pred, bool_masked_pos
     
     def visualize(self, title:str, imgs: T.Tensor, labels: T.Tensor, preds: T.Tensor, discretized_cmaps: T.Tensor, masks: T.Tensor, counter:int = None):
         if self.log_enabled and self.gpu_id == 0 and (self.counter % self.args['image_log_interval'] == 0 or counter is not None):
             counter = counter if counter is not None else self.counter
-            idx = np.random.randint(0, len(preds))
+            all_res = []
+            for i in range(len(preds)):
+                input_img = imgs[i].cpu()
+                label = labels[i].cpu()
+                pred = preds[i].cpu()
+                cmap = discretized_cmaps[i].cpu()
 
-            input_img = imgs[idx].cpu()
-            label = labels[idx].cpu()
-            pred = preds[idx].cpu()
-            cmap = discretized_cmaps[idx].cpu()
-            mask = masks[idx].cpu().float()
-            masked_label = (1 - mask) * label  + mask * T.randn_like(mask)
-            
-            result = T.concatenate([input_img, masked_label, label], axis=2)
-            result = T.permute(result, (1, 2, 0))
-            result = self.unnormalize(result)
-            
-            result = T.concatenate([result, pred, cmap / 255.0], axis=1)
-            self.summary_writer.add_image(title, result, counter, dataformats='HWC')
+                # l = F.smooth_l1_loss(pred, label.permute(1, 2, 0), reduction="none", beta=0.01)
+                # print('diff in visualize', i, l.mean())
+                
+                result = T.concatenate([input_img, label], axis=2)
+                result = T.permute(result, (1, 2, 0))
+                result = self.unnormalize(result)
+                
+                result = T.concatenate([result, pred, cmap / 255.0], axis=1)
+                all_res.append(result)
+            all_res = T.concatenate(all_res, dim=0)
+            self.summary_writer.add_image(title, all_res, counter, dataformats='HWC')
+    
+    def iou(self, pred: T.tensor, label: T.tensor, mask: T.tensor, ori_label: T.tensor, color_palette: T.tensor):
+        pred = self.model.module.seggpt.unpatchify(pred) # B, 3, H, W
+        mask = mask[:, :, None].repeat(1, 1, self.model.module.seggpt.patch_size**2 * 3)
+        mask = self.model.module.seggpt.unpatchify(mask)
+        mask = mask.to(pred.device)
+        # print('mask', mask.shape)
+        # print('pred', pred.shape)
+        ori_label = ori_label.to(pred.device)
+        # print('ori_label', ori_label.shape)
+        color_palette = color_palette.to(pred.device)
+        # print('color_palette', color_palette.shape)
+
+        pred = T.permute(pred, (0, 2, 3, 1))  # B, H, W, 3
+        pred = self.unnormalize(pred)
+        discretized_cmap, pred_label = cmap_to_lbl(pred * 255.0, color_palette)
+        pred = pred[:, pred.shape[1]//2:, :, :]
+        pred_label = pred_label[:, pred_label.shape[1]//2:, :]
+        discretized_cmap = discretized_cmap[:, discretized_cmap.shape[1]//2:, :, :]
+        # print('pred_label', pred_label.shape, T.unique(pred_label))
+        # print('discretized_cmap', discretized_cmap.shape)
+        mask = mask[:, 0, :, :]
+        mask = mask[:, mask.shape[1]//2:, :] 
+        # print(mask, mask.shape)
+        n_class = color_palette.shape[1]
+        result = calculate_iou(pred_label, ori_label, mask, n_class)
+        return result, pred, discretized_cmap, mask
     
     def save_checkpoint(self, epoch: int, name: str = '', only_model: bool = True):
         if self.gpu_id == 0:
@@ -371,7 +413,7 @@ class AgentAdapter(Agent):
                 c_iou, preds, cmaps, masks = self.iou(b_pred, label, mask, ori_label, color_palette)
                 val_counter = epoch * len(dl) + i
                 if val_counter % self.args['image_log_interval'] == 0:
-                    self.visualize(f'Validation/{epoch}', img, label, preds, cmaps, masks, val_counter)
+                    self.visualize(f'Validation', img, label, preds, cmaps, masks, val_counter)
             else:
                 self.model.train()
                 b_loss, b_pred, b_mask = self.step(img, label, mask, valid, seg_type, is_train)
@@ -384,7 +426,7 @@ class AgentAdapter(Agent):
                 self.write_summary(f'LR Scheduler', self.optim.param_groups[0]['lr'], self.counter)
                 self.write_summary('Training/Batch Loss', b_loss, self.counter)
 
-                self.visualize(f'Training/{epoch}', img, label, preds, cmaps, masks)
+                self.visualize(f'Training', img, label, preds, cmaps, masks)
                 yield i
 
 

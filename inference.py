@@ -14,23 +14,45 @@ from utils import cmap_to_lbl
 imagenet_mean = np.array([0.485, 0.456, 0.406])
 imagenet_std = np.array([0.229, 0.224, 0.225])
 
+# color_map = np.array([
+#     # (0, 0, 0),      # Background (e.g., sky)
+#     (34, 139, 34),  # Tree (Forest Green)
+#     (0, 255, 127),  # Rangeland (Chartreuse)
+#     (0, 255, 36),   # Bareland (Green)
+#     (244, 164, 96), # Agricultural Land Type 1 (Sandy Brown)
+#     (255, 255, 255),# Road Type 1 (White)
+#     (0, 191, 255),  # Sea, Lake, & Pond (Deep Sky Blue)
+#     (255, 0, 0),    # Building Type 1 (Red)
+#     # (218, 165, 32), # Road Type 2 (Goldenrod)
+#     # (65, 105, 225), # River (Royal Blue)
+#     # (0, 255, 127),  # Boat & Ship (Spring Green)
+#     # (107, 142, 35), # Agricultural Land Type 2 (Olive Drab)
+#     # (240, 230, 140),# (Add meaningful label) (Khaki)
+#     # (128, 0, 128),  # (Add meaningful label) (Purple)
+#     # (255, 20, 147)  # (Add meaningful label) (Deep Pink)
+# ])
+
 color_map = np.array([
-    # (0, 0, 0),      # Background (e.g., sky)
-    (34, 139, 34),  # Tree (Forest Green)
-    (0, 255, 127),  # Rangeland (Chartreuse)
-    (0, 255, 36),   # Bareland (Green)
-    (244, 164, 96), # Agricultural Land Type 1 (Sandy Brown)
-    (255, 255, 255),# Road Type 1 (White)
-    (0, 191, 255),  # Sea, Lake, & Pond (Deep Sky Blue)
-    (255, 0, 0),    # Building Type 1 (Red)
-    # (218, 165, 32), # Road Type 2 (Goldenrod)
-    # (65, 105, 225), # River (Royal Blue)
-    # (0, 255, 127),  # Boat & Ship (Spring Green)
-    # (107, 142, 35), # Agricultural Land Type 2 (Olive Drab)
-    # (240, 230, 140),# (Add meaningful label) (Khaki)
-    # (128, 0, 128),  # (Add meaningful label) (Purple)
-    # (255, 20, 147)  # (Add meaningful label) (Deep Pink)
+    (0, 0,  0),
+    (40, 130,  72),
+    (255, 237, 2),
+    (222, 173,  100),
+    (215,  22, 194),
+    (255, 255, 255),
+    (59,  17, 243),
+    (114,   6,  39),
 ])
+
+# color_map = np.array([
+#     (0, 0,  0),
+#     (40, 130,  72),
+#     (255, 237, 2),
+#     (222, 173,  100),
+#     (255,  0, 0),
+#     (255, 255, 255),
+#     (59,  17, 243),
+#     (114,   6,  39),
+# ])
 
 def get_args_parser():
     parser = argparse.ArgumentParser('SegGPT inference', add_help=False)
@@ -47,7 +69,7 @@ def get_args_parser():
     parser.add_argument('--prompt_target', type=str, nargs='+', help='path to prompt target',
                         default=None)
     parser.add_argument('--seg_type', type=str, help='embedding for segmentation types', 
-                        choices=['instance', 'semantic'], default='instance')
+                        choices=['instance', 'semantic'], default='semantic')
     parser.add_argument('--device', type=str, help='cuda or cpu',
                         default='cuda')
     parser.add_argument('--output_dir', type=str, help='path to output',
@@ -93,6 +115,90 @@ def run_one_image(img, tgt, model, device):
     output = y[0, y.shape[1]//2:, :, :]
     output = torch.clip((output * imagenet_std + imagenet_mean) * 255, 0, 255)
     return output
+
+def inference_image_with_crop(model, device, img_path, img2_paths, tgt2_paths, out_path, store_dir=False, split=2):
+    res, hres = 448, 448
+
+    full_image = Image.open(img_path).convert("RGB").resize((1024, 1024))
+    row_size = full_image.size[0] // split
+    col_size = full_image.size[1] // split
+    
+    h, w = full_image.size
+    final_out_color = np.zeros((h, w, 3))
+    final_out_label = np.zeros((h, w))
+    final_out_image = np.zeros((h, w, 3))
+
+    for row in range(split):
+        for col in range(split):
+            image = full_image.crop((row * row_size, col * col_size, (row + 1) * row_size, (col + 1) * col_size))
+            input_image = np.array(image)
+            image = np.array(image.resize((res, hres))) / 255.
+
+            image_batch, target_batch = [], []
+            for img2_path, tgt2_path in zip(img2_paths, tgt2_paths):
+                full_img2 = Image.open(img2_path).convert("RGB").resize((1024, 1024))
+                full_tgt2 = Image.open(tgt2_path).convert("RGB").resize((1024, 1024), Image.NEAREST)
+
+                for i_row in range(split):
+                    for i_col in range(split):
+                        img2 = full_img2.crop((i_row * row_size, i_col * col_size, (i_row + 1) * row_size, (i_col + 1) * col_size))
+                        tgt2 = full_tgt2.crop((i_row * row_size, i_col * col_size, (i_row + 1) * row_size, (i_col + 1) * col_size))
+
+                        img2 = img2.resize((res, hres))
+                        img2 = np.array(img2) / 255.
+
+                        tgt2 = tgt2.resize((res, hres), Image.NEAREST)
+                        tgt2 = np.array(tgt2) / 255.
+
+                        tgt = tgt2  # tgt is not available
+                        tgt = np.concatenate((tgt2, tgt), axis=0)
+                        img = np.concatenate((img2, image), axis=0)
+                    
+                        assert img.shape == (2*res, res, 3), f'{img.shape}'
+                        # normalize by ImageNet mean and std
+                        img = img - imagenet_mean
+                        img = img / imagenet_std
+
+                        assert tgt.shape == (2*res, res, 3), f'{img.shape}'
+                        # normalize by ImageNet mean and std
+                        tgt = tgt - imagenet_mean
+                        tgt = tgt / imagenet_std
+
+                        image_batch.append(img)
+                        target_batch.append(tgt)
+            
+            img = np.stack(image_batch, axis=0)
+            tgt = np.stack(target_batch, axis=0)
+            """### Run SegGPT on the image"""
+            # make random mask reproducible (comment out to make it change)
+            torch.manual_seed(2)
+            output = run_one_image(img, tgt, model, device)
+            output = F.interpolate(
+                output[None, ...].permute(0, 3, 1, 2), 
+                size=[row_size, col_size], 
+                mode='nearest',
+            ).permute(0, 2, 3, 1)
+            output, label = cmap_to_lbl(output, torch.tensor(color_map, device=output.device, dtype=output.dtype).unsqueeze(0))
+            output = output[0].numpy()
+            label = label[0].numpy()
+            final_out_color[col * col_size:(col + 1) * col_size, row * row_size:(row + 1) * row_size] = output
+            final_out_label[col * col_size:(col + 1) * col_size, row * row_size:(row + 1) * row_size] = label
+            final_out_image[col * col_size:(col + 1) * col_size, row * row_size:(row + 1) * row_size] = input_image
+
+
+    final_out_color = np.concatenate((final_out_image, final_out_color), axis=1)
+    final_out_color = Image.fromarray((final_out_color).astype(np.uint8))
+
+    if store_dir:
+        dirname, filename = os.path.dirname(out_path), os.path.basename(out_path)
+        color_dir = os.path.join(dirname, "color"); os.makedirs(color_dir, exist_ok=True)
+        final_out_color.save(os.path.join(color_dir, filename))
+
+        final_out_label = Image.fromarray((final_out_label).astype(np.uint8))
+        label_dir = os.path.join(dirname, "label"); os.makedirs(label_dir, exist_ok=True)
+        final_out_label.save(os.path.join(label_dir, filename))
+    else:
+        final_out_color.save(out_path)
 
 def inference_image(model, device, img_path, img2_paths, tgt2_paths, out_path, store_dir=False):
     res, hres = 448, 448
@@ -160,13 +266,15 @@ def inference_image(model, device, img_path, img2_paths, tgt2_paths, out_path, s
 
 def run_eval(args, model):
     mapping = json.load(open(args.mapping))
-    train_folder, val_folder = "/home/hagairaja/OpenEarthMap/dataset/trainset/images", "/home/hagairaja/OpenEarthMap/dataset/valset/images"
-    train_color_folder = "/home/hagairaja/OpenEarthMap/dataset/trainset/labels_colored"
+    prompt_folder, val_folder = '/disk3/steve/dataset/OpenEarthMap-FSS/trainset/images', '/disk3/steve/dataset/OpenEarthMap-FSS/testset/images'
+    prompt_label_color_folder = '/disk3/steve/dataset/OpenEarthMap-FSS/trainset/labels_color'
     for input_image in tqdm(mapping):
         input = os.path.join(val_folder, input_image)
-        prompt = [os.path.join(train_folder, file) for file in mapping[input_image]]
-        prompt_target = [os.path.join(train_color_folder, file.replace('.tif', '.png')) for file in mapping[input_image]]
+        top_k = 2
+        prompt = [os.path.join(prompt_folder, file) for file in mapping[input_image][:top_k]]
+        prompt_target = [os.path.join(prompt_label_color_folder, file.replace('.tif', '.png')) for file in mapping[input_image][:top_k]]
         out_path = os.path.join(args.output_dir, input_image.replace('.tif', '.png'))
+        # inference_image_with_crop(model, device, input, prompt, prompt_target, out_path, store_dir=True, split=2)
         inference_image(model, device, input, prompt, prompt_target, out_path, store_dir=True)
     return
 
@@ -193,9 +301,5 @@ if __name__ == '__main__':
 """
 python inference.py --ckpt_path /home/steve/SegGPT-FineTune/logs/1710148218/weights/epoch15_loss0.7601_metric0.0000.pt --output_dir submission
 
-python seggpt_inference.py --ckpt_path /home/steve/SegGPT-FineTune/logs/1710148218/weights/epoch15_loss0.7601_metric0.0000.pt \
---input_image /disk3/steve/dataset/OpenEarthMap-FSS/valset/images/accra_29.tif \
---prompt_image /disk3/steve/dataset/OpenEarthMap-FSS/trainset/images/accra_8.tif /disk3/steve/dataset/OpenEarthMap-FSS/trainset/images/accra_27.tif /disk3/steve/dataset/OpenEarthMap-FSS/trainset/images/accra_31.tif /disk3/steve/dataset/OpenEarthMap-FSS/trainset/images/accra_37.tif \
---prompt_target /disk3/steve/dataset/OpenEarthMap-FSS/trainset/labels_color/5/accra_8.png /disk3/steve/dataset/OpenEarthMap-FSS/trainset/labels_color/6/accra_27.png /disk3/steve/dataset/OpenEarthMap-FSS/trainset/labels_color/5/accra_31.png /disk3/steve/dataset/OpenEarthMap-FSS/trainset/labels_color/6/accra_37.png \
---output_dir ./
+python seggpt_inference.py --ckpt_path ../../../tuning.pt --input_image /home/steve/Datasets/OpenEarthMap-FSS/valset/images/tonga_64.tif --prompt_image /home/steve/Datasets/OpenEarthMap-FSS/valset/images/christchurch_39.tif /home/steve/Datasets/OpenEarthMap-FSS/valset/images/sechura_37.tif /home/steve/Datasets/OpenEarthMap-FSS/valset/images/kitsap_22.tif /home/steve/Datasets/OpenEarthMap-FSS/valset/images/duesseldorf_15.tif /home/steve/Datasets/OpenEarthMap-FSS/valset/images/sechura_11.tif --prompt_target /home/steve/Datasets/OpenEarthMap-FSS/valset/labels_color/christchurch_39.png /home/steve/Datasets/OpenEarthMap-FSS/valset/labels_color/sechura_37.png /home/steve/Datasets/OpenEarthMap-FSS/valset/labels_color/kitsap_22.png /home/steve/Datasets/OpenEarthMap-FSS/valset/labels_color/duesseldorf_15.png /home/steve/Datasets/OpenEarthMap-FSS/valset/labels_color/sechura_11.png --output_dir tuning
 """

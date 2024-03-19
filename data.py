@@ -519,7 +519,6 @@ class OEMAdapterDataset(OEMDataset):
     def __init__(
         self, 
         root:str, 
-        class_idx: int,
         mean:Iterable[float]=[0.485, 0.456, 0.406], 
         std:Iterable[float]=[0.229, 0.224, 0.225], 
         resize: Tuple[int, int] = (448, 448),
@@ -528,7 +527,6 @@ class OEMAdapterDataset(OEMDataset):
         validation_ratio: float = 0.1,
         is_train: bool = True,
     ):
-        self.class_idx = class_idx
         self.validation_ratio = validation_ratio
         
         super().__init__(root, mean, std, resize, 2, patch_size, mask_ratio, is_train)
@@ -545,12 +543,8 @@ class OEMAdapterDataset(OEMDataset):
         for img_path, label_path in tqdm(self.paths, desc='Caching images and grouping labels'):
             img = self._load_img(img_path)
             label = self._load_lbl(label_path)
-
-            mask = label == self.class_idx
-            c_pixels = mask.sum()
-            if c_pixels > 0:
-                self.images.append(img)
-                self.labels.append(mask.astype(np.uint8))
+            self.images.append(img)
+            self.labels.append(label)
         
         # cut_off_idx = int(len(self.images) * (1 - self.validation_ratio))
         # if self.is_train:
@@ -595,10 +589,93 @@ class OEMAdapterDataset(OEMDataset):
         color_palette = torch.FloatTensor(color_palette)
         return img, label, mask, valid, seg_type, ori_label, color_palette
 
+
+class OEMAdapterDatasetV2(OEMAdapterDataset):
+    def __init__(
+        self, 
+        root:str, 
+        mean:Iterable[float]=[0.485, 0.456, 0.406], 
+        std:Iterable[float]=[0.229, 0.224, 0.225], 
+        resize: Tuple[int, int] = (448, 448),
+        patch_size: Tuple[int, int] = (16, 16),
+        mask_ratio: float = 0.75,
+        validation_ratio: float = 0.1,
+        is_train: bool = True,
+        smallest_crop_size: int = 128,
+        smallest_stride: int = 64,
+    ):
+        self.validation_ratio = validation_ratio
+        self.smallest_crop_size = smallest_crop_size
+        self.smallest_stride = smallest_stride
+        
+        super().__init__(root, mean, std, resize, patch_size, mask_ratio, validation_ratio, is_train)
+
+        self._crop_images()
+
+
+    def _crop_images(self):
+        self.fg_bg = []
+        self.bg_only = []
+        crop_size = self.smallest_crop_size
+        stride = self.smallest_stride
+        while crop_size <= 512:
+            for img, label in tqdm(zip(self.images, self.labels), desc=f'Crop size: {crop_size}, stride: {stride}'):
+                for i in range(0, img.shape[0] - crop_size, stride):
+                    for j in range(0, img.shape[1] - crop_size, stride):
+                        cropped_img = img[i:i+crop_size, j:j+crop_size]
+                        cropped_lbl = label[i:i+crop_size, j:j+crop_size]
+                        total_positive = (cropped_lbl == 1).sum()
+                        total_negative = (cropped_lbl == 0).sum()
+                        if total_positive / (total_positive + total_negative) > 0:
+                            self.fg_bg.append((cropped_img, cropped_lbl))
+                        else:
+                            self.bg_only.append((cropped_img, cropped_lbl))
+            crop_size *= 2
+            stride *= 2
+
+    def __len__(self):
+        return len(self.fg_bg)
+
+    def _init_augmentation(self):
+        if self.is_train:
+            self.augment_all = iaa.Sequential([
+                iaa.Fliplr(0.5),
+                iaa.Flipud(0.5),
+                iaa.Resize((448, 448), interpolation='nearest')
+            ])
+            self.augment_img = iaa.Sequential([ # does not change relative positions
+                iaa.Multiply((0.9, 1.1), per_channel=0.5), # change brightness of images (50-150% of original value)
+                iaa.GaussianBlur((0, 1.0)),
+            ])
+        else:
+            self.augment_all = iaa.Sequential([
+                iaa.Resize((448, 448), interpolation='nearest')
+            ])
+            self.augment_img = iaa.Sequential([])
+
+    def __getitem__(self, idx):
+        img, ori_label = self.fg_bg[idx]
+
+        color_palette = np.array([[0, 0, 0], [255, 255, 255]])
+        label = self._lbl_random_color(ori_label, color_palette)
+
+        img, label, ori_label = self._augment([img], [label], [ori_label])
+        img = self._to_img_tensor(img[0])
+        label = self._to_img_tensor(label[0])
+        ori_label = torch.FloatTensor(ori_label[0].copy())
+        
+        mask = self._generate_mask((img.shape[1] * 2, img.shape[2]))
+        # lef_valid = torch.zeros(label.shape[0], label.shape[1], label.shape[2])
+        # right_valid = torch.ones(label.shape[0], label.shape[1], label.shape[2])
+        # valid = torch.cat([lef_valid, right_valid], dim=1)
+        # valid = torch.ones([lef_valid, right_valid], dim=1)
+        valid = torch.ones(label.shape[0], label.shape[1] * 2, label.shape[2])
+        seg_type = torch.zeros([1])
+        color_palette = torch.FloatTensor(color_palette)
+        return img, label, mask, valid, seg_type, ori_label, color_palette
     
 if __name__ == '__main__':
-    dataset = OEMAdapterDataset('/disk3/steve/dataset/OpenEarthMap-FSS/valset', is_train=True, class_idx=8)
-    a = dataset[0]
+    dataset = OEMAdapterDatasetV2('/disk3/steve/dataset/OpenEarthMap-FSS/valset/9', is_train=True, resize=(1024, 1024), smallest_crop_size=128, smallest_stride=32)
     print(len(dataset))
     # for i in tqdm(range(len(dataset))):
     #     a = dataset[i]

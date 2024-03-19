@@ -8,8 +8,8 @@
     "batch_size": 4,
     "epoch": 1000,
     "log_dir": "logs",
-    "train_dataset_dir": "/disk3/steve/dataset/OpenEarthMap-FSS/valset/9",
-    "val_dataset_dir": "/disk3/steve/dataset/OpenEarthMap-FSS/valset/9",
+    "train_dataset_dir": "/disk3/steve/dataset/OpenEarthMap-FSS/valset/8",
+    "val_dataset_dir": "/disk3/steve/dataset/OpenEarthMap-FSS/valset/8",
     "num_workers": 4,
     "eval_per_epoch": 1,
     "ckpt_interval": 50,
@@ -18,5 +18,5 @@
     "image_log_interval": 10,
     "model_path": "logs/mim2/weights/best.pt",
     "validation_ratio": 0,
-    "adapter_path": "logs/1710823651/weights/best.pt"
+    "adapter_path": "logs/1710828431/weights/best.pt"
 }

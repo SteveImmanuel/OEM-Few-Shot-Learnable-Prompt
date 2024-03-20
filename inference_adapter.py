@@ -107,7 +107,7 @@ def inference_image_with_crop(model, device, img_path, class_idx, outdir, split=
     concat.save(os.path.join(outdir, 'concat', filename.replace('.tif', '.png')))
     final_out_label.save(os.path.join(outdir, 'label', filename.replace('.tif', '.png')))
 
-def inference_stitch(model, device, img_path, class_idx, tgt_path, lbl_path, out_dir, split=2, width=4):
+def inference_stitch(model, device, img_path, class_idx, tgt_path, lbl_path, outdir, split=2, width=4):
     # run after inference_image_with_crop
     # only works for split = 2
     res, hres = 448, 448
@@ -167,19 +167,19 @@ def inference_stitch(model, device, img_path, class_idx, tgt_path, lbl_path, out
 
     
     filename = os.path.basename(img_path).replace('.tif', '.png')
-    os.makedirs(os.path.join(out_dir, 'color_stitch'), exist_ok=True)
-    os.makedirs(os.path.join(out_dir, 'concat_stitch'), exist_ok=True)
-    os.makedirs(os.path.join(out_dir, 'label_stitch'), exist_ok=True)
+    os.makedirs(os.path.join(outdir, 'stitch', 'color'), exist_ok=True)
+    os.makedirs(os.path.join(outdir, 'stitch', 'concat'), exist_ok=True)
+    os.makedirs(os.path.join(outdir, 'stitch', 'label'), exist_ok=True)
 
     final_out_color = Image.fromarray((final_out_color).astype(np.uint8))
-    final_out_color.save(os.path.join(out_dir, 'color_stitch', filename))
+    final_out_color.save(os.path.join(outdir, 'stitch', 'color', filename))
 
     final_out_label = Image.fromarray((final_out_label).astype(np.uint8))
-    final_out_label.save(os.path.join(out_dir, 'label_stitch', filename))
+    final_out_label.save(os.path.join(outdir, 'stitch', 'label', filename))
 
     concat = np.concatenate((np.array(full_image), np.array(full_tgt), final_out_color), axis=1)
     concat = Image.fromarray((concat).astype(np.uint8))
-    concat.save(os.path.join(out_dir, 'concat_stitch', filename))
+    concat.save(os.path.join(outdir, 'stitch', 'concat', filename))
 
 def get_args_parser():
     parser = argparse.ArgumentParser('SegGPT inference adapter', add_help=False)
@@ -188,6 +188,7 @@ def get_args_parser():
     parser.add_argument('--split', type=int, help='how many to image split into (each dim)', default=2)
     parser.add_argument('--dataset-dir', type=str, help='path to input image to be tested', default='/disk3/steve/dataset/OpenEarthMap-FSS/testset/images')
     parser.add_argument('--device', type=str, help='cuda or cpu', default='cuda')
+    parser.add_argument('--stitch-width', type=int, help='width of the stitching', default=4)
     parser.add_argument('--outdir', type=str, help='path to output directory', default='./')
     return parser.parse_args()
 
@@ -202,10 +203,9 @@ if __name__ == '__main__':
     model = model.to(args.device)
     model.eval()
 
-    class_idx = 11
-    split = 2
     for file in tqdm(os.listdir(args.dataset_dir)):
         inference_image_with_crop(model, 'cuda', os.path.join(args.dataset_dir, file), args.class_idx, outdir=args.outdir, split=args.split)
         tgt_path = os.path.join(args.outdir, 'color', file.replace('.tif', '.png'))
         lbl_path = os.path.join(args.outdir, 'label', file.replace('.tif', '.png'))
-        inference_stitch(model, 'cuda', os.path.join(args.dataset_dir, file), args.class_idx, tgt_path, lbl_path, args.outdir, split=args.split, width=4)
+        if args.split == 2:
+            inference_stitch(model, 'cuda', os.path.join(args.dataset_dir, file), args.class_idx, tgt_path, lbl_path, args.outdir, split=args.split, width=args.stitch_width)

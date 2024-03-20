@@ -1,5 +1,6 @@
 import logging
 import torch
+import numpy as np
 
 def setup_logging():
     logging.basicConfig(level=logging.INFO)
@@ -42,7 +43,6 @@ def calculate_iou(pred: torch.Tensor, gt: torch.Tensor, mask: torch.Tensor, tota
         gt_total = (masked_gt == i)
         intersection = (pred_total & gt_total).sum()
         union = pred_total.sum() + gt_total.sum() - intersection
-        # print(i, pred_total.sum(), gt_total.sum(), intersection, union)
         result[i][0] += intersection
         result[i][1] += union
     return result
@@ -58,9 +58,21 @@ def calculate_iou_one_class(pred: torch.Tensor, gt: torch.Tensor, mask: torch.Te
         gt_total = (masked_gt == i)
         intersection = (pred_total & gt_total).sum()
         union = pred_total.sum() + gt_total.sum() - intersection
-        # print(i, pred_total.sum(), gt_total.sum(), intersection, union)
         result[i][0] += intersection
         result[i][1] += union
+    return result
+
+def create_stitch_mask(h, w, type, width):
+    prompt_mask = np.zeros(h * w)
+    image_mask = np.zeros((h, w))
+    if type == 0:
+        image_mask[:, image_mask.shape[1] // 2 - width: image_mask.shape[1] // 2 + width] = 1
+    elif type == 1:
+        image_mask[image_mask.shape[0] // 2 - width: image_mask.shape[0] // 2 + width, :] = 1
+    else:
+        image_mask[image_mask.shape[0] // 2 - width: image_mask.shape[0] // 2 + width, image_mask.shape[1] // 2 - width: image_mask.shape[1] // 2 + width] = 1
+    image_mask = image_mask.flatten()
+    result = np.concatenate((prompt_mask, image_mask))
     return result
 
 if __name__ == '__main__':

@@ -222,20 +222,6 @@ def inference_image_with_crop(model, device, img_path, img2_paths, tgt2_paths, o
     else:
         final_out_color.save(out_path)
 
-
-def create_stitch_mask(h, w, type, width):
-    prompt_mask = np.zeros(h * w)
-    image_mask = np.zeros((h, w))
-    if type == 0:
-        image_mask[:, image_mask.shape[1] // 2 - width: image_mask.shape[1] // 2 + width] = 1
-    elif type == 1:
-        image_mask[image_mask.shape[0] // 2 - width: image_mask.shape[0] // 2 + width, :] = 1
-    else:
-        image_mask[image_mask.shape[0] // 2 - width: image_mask.shape[0] // 2 + width, image_mask.shape[1] // 2 - width: image_mask.shape[1] // 2 + width] = 1
-    image_mask = image_mask.flatten()
-    result = np.concatenate((prompt_mask, image_mask))
-    return result
-
 def inference_stitch(model, device, img_path, tgt_path, lbl_path, img2_paths, tgt2_paths, out_path, store_dir=False, split=2, width=4):
     # run after inference_image_with_crop
     # only works for split = 2

@@ -2,53 +2,32 @@ import sys
 sys.path.append('Painter/SegGPT/SegGPT_inference')
 
 import os
-import json
 import torch as T
+import argparse
 import numpy as np
-from agent import AgentAdapter
 from typing import Dict
 from utils import *
 import torch.nn.functional as F
-from torch.utils.data.distributed import DistributedSampler
 from Painter.SegGPT.SegGPT_inference.models_seggpt import seggpt_vit_large_patch16_input896x448
 from model import AdapterSegGPT
-from data import OEMAdapterDataset
 from PIL import Image
 from tqdm import tqdm
 
 
-imagenet_mean = np.array([0.485, 0.456, 0.406])
-imagenet_std = np.array([0.229, 0.224, 0.225])
+IMAGENET_MEAN = np.array([0.485, 0.456, 0.406])
+IMANGENET_STD = np.array([0.229, 0.224, 0.225])
 
-color_map = np.array([
+COLOR_MAP = np.array([
     (0, 0,  0),
     (255, 255, 255),
 ])
 
-def unnormalize(img: T.tensor, image_std, image_mean):
-    # img B, H, W, 3 or H, W, 3
-    std = T.FloatTensor(image_std).to(img.device)
-    mean = T.FloatTensor(image_mean).to(img.device)
-    return T.clip((img * std + mean), 0, 1)
-
-def to_img_tensor(arr: np.ndarray, image_std, image_mean):
-    arr = arr / 255.0
-    arr = arr - image_mean
-    arr = arr / image_std
-    res = torch.FloatTensor(arr)
-    res = torch.einsum('hwc->chw', res)
-    return res
-
-
-
 @torch.no_grad()
 def run_one_image(img, tgt, model, device, mask=None):
     x = torch.tensor(img)
-    # make it a batch-like
     x = torch.einsum('nhwc->nchw', x)
 
     tgt = torch.tensor(tgt)
-    # make it a batch-like
     tgt = torch.einsum('nhwc->nchw', tgt)
 
     if mask is None:
@@ -66,25 +45,13 @@ def run_one_image(img, tgt, model, device, mask=None):
     y = torch.einsum('nchw->nhwc', y).detach().cpu()
 
     output = y[0, y.shape[1]//2:, :, :]
-    output = torch.clip((output * imagenet_std + imagenet_mean) * 255, 0, 255)
+    output = torch.clip((output * IMANGENET_STD + IMAGENET_MEAN) * 255, 0, 255)
     
     mask = mask[:, :, None].repeat(1, 1, model.seggpt.patch_size**2 * 3)
     mask = model.seggpt.unpatchify(mask)
-    # print('m', mask.shape)
     mask = mask.permute(0, 2, 3, 1)
     mask = mask[0, mask.shape[1]//2:, :, :]
     mask = mask.cpu().float()
-    
-    # temp_img = x[0].permute(1, 2, 0)
-    # # print(temp_img.shape)
-    # # masked_label = (1 - mask) * temp_img  + mask * torch.randn_like(mask)
-    # # masked_label = torch.clip((masked_label * imagenet_std + imagenet_mean) * 255, 0, 255)
-    # masked_label = torch.clip((temp_img * imagenet_std + imagenet_mean) * 255, 0, 255)
-    # masked_label = masked_label.cpu().numpy()
-    # print(masked_label.shape)
-    # timg = Image.fromarray((masked_label).astype(np.uint8))
-    # timg.save('temp_test.png')
-
 
     return output, mask
 
@@ -106,7 +73,7 @@ def inference_image_with_crop(model, device, img_path, class_idx, outdir, split=
             input_image = np.array(image)
 
             image = np.array(image.resize((res, hres))) / 255.
-            image = (image - imagenet_mean) / imagenet_std
+            image = (image - IMAGENET_MEAN) / IMANGENET_STD
             image = np.expand_dims(image, axis=0)
             tgt = np.zeros_like(image)
 
@@ -117,7 +84,7 @@ def inference_image_with_crop(model, device, img_path, class_idx, outdir, split=
                 size=[row_size, col_size], 
                 mode='nearest',
             ).permute(0, 2, 3, 1)
-            output, label = cmap_to_lbl(output, torch.tensor(color_map, device=output.device, dtype=output.dtype).unsqueeze(0))
+            output, label = cmap_to_lbl(output, torch.tensor(COLOR_MAP, device=output.device, dtype=output.dtype).unsqueeze(0))
             output = output[0].numpy()
             label = label[0].numpy()
             final_out_color[col * col_size:(col + 1) * col_size, row * row_size:(row + 1) * row_size] = output
@@ -140,21 +107,7 @@ def inference_image_with_crop(model, device, img_path, class_idx, outdir, split=
     concat.save(os.path.join(outdir, 'concat', filename.replace('.tif', '.png')))
     final_out_label.save(os.path.join(outdir, 'label', filename.replace('.tif', '.png')))
 
-
-def create_stitch_mask(h, w, type, width):
-    prompt_mask = np.zeros(h * w)
-    image_mask = np.zeros((h, w))
-    if type == 0:
-        image_mask[:, image_mask.shape[1] // 2 - width: image_mask.shape[1] // 2 + width] = 1
-    elif type == 1:
-        image_mask[image_mask.shape[0] // 2 - width: image_mask.shape[0] // 2 + width, :] = 1
-    else:
-        image_mask[image_mask.shape[0] // 2 - width: image_mask.shape[0] // 2 + width, image_mask.shape[1] // 2 - width: image_mask.shape[1] // 2 + width] = 1
-    image_mask = image_mask.flatten()
-    result = np.concatenate((prompt_mask, image_mask))
-    return result
-
-def inference_stitch(model, device, img_path, tgt_path, lbl_path, out_dir, split=2, width=4):
+def inference_stitch(model, device, img_path, class_idx, tgt_path, lbl_path, out_dir, split=2, width=4):
     # run after inference_image_with_crop
     # only works for split = 2
     res, hres = 448, 448
@@ -184,14 +137,11 @@ def inference_stitch(model, device, img_path, tgt_path, lbl_path, out_dir, split
         cropped_image = full_image.crop(crop_param).resize((res, hres))
         cropped_tgt = full_tgt.crop(crop_param).resize((res, hres), Image.NEAREST)
 
-        # cropped_image.save(f'temp_cropped_image{i}.png')
-        # cropped_tgt.save(f'temp_cropped_tgt{i}.png')
-
         img = np.array(cropped_image) / 255.
-        img = (img - imagenet_mean) / imagenet_std
+        img = (img - IMAGENET_MEAN) / IMANGENET_STD
         img = np.expand_dims(img, axis=0)
         tgt = np.array(cropped_tgt) / 255.
-        tgt = (tgt - imagenet_mean) / imagenet_std
+        tgt = (tgt - IMAGENET_MEAN) / IMANGENET_STD
         tgt = np.expand_dims(tgt, axis=0)
 
         torch.manual_seed(2)
@@ -207,7 +157,7 @@ def inference_stitch(model, device, img_path, tgt_path, lbl_path, out_dir, split
             size=[row_size, col_size], 
             mode='nearest',
         ).permute(0, 2, 3, 1)
-        output, label = cmap_to_lbl(output, torch.tensor(color_map, device=output.device, dtype=output.dtype).unsqueeze(0))
+        output, label = cmap_to_lbl(output, torch.tensor(COLOR_MAP, device=output.device, dtype=output.dtype).unsqueeze(0))
         output = output[0].numpy()
         label = label[0].numpy()
         mask = mask[0].numpy()
@@ -217,39 +167,45 @@ def inference_stitch(model, device, img_path, tgt_path, lbl_path, out_dir, split
 
     
     filename = os.path.basename(img_path).replace('.tif', '.png')
-    os.makedirs(os.path.join(out_dir, 'color'), exist_ok=True)
-    os.makedirs(os.path.join(out_dir, 'concat'), exist_ok=True)
-    os.makedirs(os.path.join(out_dir, 'label'), exist_ok=True)
+    os.makedirs(os.path.join(out_dir, 'color_stitch'), exist_ok=True)
+    os.makedirs(os.path.join(out_dir, 'concat_stitch'), exist_ok=True)
+    os.makedirs(os.path.join(out_dir, 'label_stitch'), exist_ok=True)
 
     final_out_color = Image.fromarray((final_out_color).astype(np.uint8))
-    final_out_color.save(os.path.join(out_dir, 'color', filename))
+    final_out_color.save(os.path.join(out_dir, 'color_stitch', filename))
 
     final_out_label = Image.fromarray((final_out_label).astype(np.uint8))
-    final_out_label.save(os.path.join(out_dir, 'label', filename))
+    final_out_label.save(os.path.join(out_dir, 'label_stitch', filename))
 
     concat = np.concatenate((np.array(full_image), np.array(full_tgt), final_out_color), axis=1)
     concat = Image.fromarray((concat).astype(np.uint8))
-    concat.save(os.path.join(out_dir, 'concat', filename))
+    concat.save(os.path.join(out_dir, 'concat_stitch', filename))
 
-model_path = 'logs/1710835935/weights/best.pt'
-seggpt_model = seggpt_vit_large_patch16_input896x448()
-model = AdapterSegGPT(seggpt_model)
-print('Frozen model loaded')
+def get_args_parser():
+    parser = argparse.ArgumentParser('SegGPT inference adapter', add_help=False)
+    parser.add_argument('--model-path', type=str, help='path to ckpt', required=True)
+    parser.add_argument('--class-idx', type=int, help='idx of the novel class', required=True)
+    parser.add_argument('--split', type=int, help='how many to image split into (each dim)', default=2)
+    parser.add_argument('--dataset-dir', type=str, help='path to input image to be tested', default='/disk3/steve/dataset/OpenEarthMap-FSS/testset/images')
+    parser.add_argument('--device', type=str, help='cuda or cpu', default='cuda')
+    parser.add_argument('--outdir', type=str, help='path to output directory', default='./')
+    return parser.parse_args()
 
-ckpt = T.load(model_path, map_location='cpu')
-model.load_state_dict(ckpt['model_state_dict'])
-print('Checkpoint loaded')
+if __name__ == '__main__':
+    args = get_args_parser()
+    seggpt_model = seggpt_vit_large_patch16_input896x448()
+    model = AdapterSegGPT(seggpt_model)
+    ckpt = T.load(args.model_path, map_location='cpu')
+    model.load_state_dict(ckpt['model_state_dict'])
+    print('Checkpoint loaded')
 
-model = model.to(0)
-model.eval()
+    model = model.to(args.device)
+    model.eval()
 
-dataset_dir = '/disk3/steve/dataset/OpenEarthMap-FSS/testset/images'
-outdir = 'class_novel/11_phase2'
-class_idx = 11
-split = 2
-for file in tqdm(os.listdir(dataset_dir)):
-    inference_image_with_crop(model, 'cuda', os.path.join(dataset_dir, file), class_idx=class_idx, outdir=outdir, split=split)
-    tgt_path = os.path.join(outdir, 'color', file.replace('.tif', '.png'))
-    lbl_path = os.path.join(outdir, 'label', file.replace('.tif', '.png'))
-    outdir_stitch = f'{outdir}_stitch'
-    inference_stitch(model, 'cuda', os.path.join(dataset_dir, file), tgt_path, lbl_path, outdir_stitch, split=split, width=4)
+    class_idx = 11
+    split = 2
+    for file in tqdm(os.listdir(args.dataset_dir)):
+        inference_image_with_crop(model, 'cuda', os.path.join(args.dataset_dir, file), args.class_idx, outdir=args.outdir, split=args.split)
+        tgt_path = os.path.join(args.outdir, 'color', file.replace('.tif', '.png'))
+        lbl_path = os.path.join(args.outdir, 'label', file.replace('.tif', '.png'))
+        inference_stitch(model, 'cuda', os.path.join(args.dataset_dir, file), args.class_idx, tgt_path, lbl_path, args.outdir, split=args.split, width=4)

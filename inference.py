@@ -280,24 +280,6 @@ def inference_stitch(model, device, img_path, tgt_path, lbl_path, img2_paths, tg
     final_out_label.save(os.path.join(outdir, 'stitch', 'label', filename))
     concat.save(os.path.join(outdir, 'stitch', 'concat', filename))
 
-def run_eval(args, model):
-    mapping = json.load(open(args.mapping))
-    prompt_folder, val_folder = '/disk3/steve/dataset/OpenEarthMap-FSS/trainset/images', '/disk3/steve/dataset/OpenEarthMap-FSS/testset/images'
-    prompt_label_color_folder = '/disk3/steve/dataset/OpenEarthMap-FSS/trainset/labels_color'
-    for input_image in tqdm(mapping):
-        input = os.path.join(val_folder, input_image)
-        top_k = 2
-        prompt = [os.path.join(prompt_folder, file) for file in mapping[input_image][:top_k]]
-        prompt_target = [os.path.join(prompt_label_color_folder, file.replace('.tif', '.png')) for file in mapping[input_image][:top_k]]
-        out_path = os.path.join(args.output_dir, input_image.replace('.tif', '.png'))
-        inference_image_with_crop(model, device, input, prompt, prompt_target, out_path, store_dir=True, split=2)
-        # inference_image(model, device, input, prompt, prompt_target, out_path, store_dir=True)
-        # print('inference crop done')
-        tgt_path = os.path.join(args.output_dir, 'color', input_image.replace('.tif', '.png'))
-        lbl_path = os.path.join(args.output_dir, 'label', input_image.replace('.tif', '.png'))
-        inference_stitch(model, device, input, tgt_path, lbl_path, prompt, prompt_target, out_path, store_dir=True, split=2, width=5)
-        # print('stitch done')
-
 def get_args_parser():
     parser = argparse.ArgumentParser('SegGPT inference', add_help=False)
     parser.add_argument('--model-path', type=str, help='path to ckpt', required=True)

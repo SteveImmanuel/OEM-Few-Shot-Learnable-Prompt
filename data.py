@@ -40,7 +40,7 @@ class OEMDataset(torch.utils.data.Dataset):
             img_path = osp.join(self.root, 'images', path)
             label_path = osp.join(self.root, 'labels', path)
             if not osp.exists(label_path):
-                # self.logger.warn(f'Skipping label path {label_path} as it does not exist')
+                self.logger.warn(f'Skipping label path {label_path} as it does not exist')
                 continue
             self.paths.append((img_path, label_path))
         
@@ -635,7 +635,6 @@ class OEMAdapterDataset(OEMDataset):
             label = self._load_lbl(label_path)
             self.images.append(img)
             self.labels.append(label)
-        
         # cut_off_idx = int(len(self.images) * (1 - self.validation_ratio))
         # if self.is_train:
         #     self.images = self.images[:cut_off_idx]
@@ -693,10 +692,12 @@ class OEMAdapterDatasetV2(OEMAdapterDataset):
         is_train: bool = True,
         smallest_crop_size: int = 128,
         smallest_stride: int = 64,
+        is_phase_2: bool = False,
     ):
         self.validation_ratio = validation_ratio
         self.smallest_crop_size = smallest_crop_size
         self.smallest_stride = smallest_stride
+        self.is_phase_2 = is_phase_2
         
         super().__init__(root, mean, std, resize, patch_size, mask_ratio, validation_ratio, is_train)
 
@@ -723,9 +724,17 @@ class OEMAdapterDatasetV2(OEMAdapterDataset):
             crop_size *= 2
             stride *= 2
 
-    def __len__(self):
-        return len(self.fg_bg)
+        if self.is_phase_2:
+            self.samples = self.fg_bg + self.bg_only        
+        else:
+            self.samples = self.fg_bg
+        np.random.shuffle(self.samples)
 
+    def __len__(self):
+        if not self.is_train:
+            return int(len(self.samples) * .2)
+        return len(self.samples)
+            
     def _init_augmentation(self):
         if self.is_train:
             self.augment_all = iaa.Sequential([
@@ -744,7 +753,7 @@ class OEMAdapterDatasetV2(OEMAdapterDataset):
             self.augment_img = iaa.Sequential([])
 
     def __getitem__(self, idx):
-        img, ori_label = self.fg_bg[idx]
+        img, ori_label = self.samples[idx]
 
         color_palette = np.array([[0, 0, 0], [255, 255, 255]])
         label = self._lbl_random_color(ori_label, color_palette)
@@ -765,7 +774,7 @@ class OEMAdapterDatasetV2(OEMAdapterDataset):
         return img, label, mask, valid, seg_type, ori_label, color_palette
     
 if __name__ == '__main__':
-    dataset = OEMAdapterDatasetV2('/disk3/steve/dataset/OpenEarthMap-FSS/valset/9', is_train=True, resize=(1024, 1024), smallest_crop_size=128, smallest_stride=32)
+    dataset = OEMAdapterDatasetV2('/disk3/steve/dataset/OpenEarthMap-FSS/testset/8', is_train=True, resize=(1024, 1024), smallest_crop_size=128, smallest_stride=16)
     print(len(dataset))
     # for i in tqdm(range(len(dataset))):
     #     a = dataset[i]

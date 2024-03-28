@@ -28,7 +28,10 @@ class Agent():
         self.log_enabled = log_enabled
         self.is_eval = is_eval
 
-        self.uid = int(time.time())
+        if args.get('uid') is not None:
+            self.uid = args['uid']
+        else:
+            self.uid = int(time.time())
 
         if not is_eval:
             self.optim = T.optim.AdamW(
@@ -588,11 +591,6 @@ class AgentAdapter(Agent):
             avg_losses = batch_losses[0] / batch_losses[1]
             m_iou = 100 * iou[:, 0] / (iou[:, 1] + 1e-10)
             
-            # if is_train: # when training, only check iou for the first 7 classes (base)
-            #     m_iou = m_iou[:7].mean().item()
-            # else: # when validation, only check iou for the last 4 classes (novel)
-            #     m_iou = m_iou[:-4].mean().item()
-
             pbar.set_postfix({
                 'Loss': f'{avg_losses:.5f}',
                 'mIoU': f'{m_iou[1:].mean().item():.3f}', # exclude background on mIoU

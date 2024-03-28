@@ -5,7 +5,7 @@
     "cycle_steps": 5000,
     "warmup_steps": 400,
     "min_lr": 0.00000001,
-    "batch_size": 4,
+    "batch_size": 1,
     "epoch": 15,
     "log_dir": "logs",
     "train_dataset_dir": "/disk3/steve/dataset/OpenEarthMap",

@@ -12,10 +12,11 @@ from torch.distributed import init_process_group, destroy_process_group
 from torch.utils.data.distributed import DistributedSampler
 from Painter.SegGPT.SegGPT_inference.models_seggpt import seggpt_vit_large_patch16_input896x448
 from data import OEMDataset, OEMFullDataset
+import wandb
 
 def ddp_setup(rank: int, world_size: int):
     os.environ['MASTER_ADDR'] = 'localhost'
-    os.environ['MASTER_PORT'] = '12355'
+    os.environ['MASTER_PORT'] = '1811'
     T.cuda.set_device(rank)
     T.cuda.empty_cache()
     init_process_group('nccl', rank=rank, world_size=world_size)
@@ -28,12 +29,13 @@ def main(rank: int, world_size: int, train_args: Dict):
     logger = get_logger(__name__, rank)
 
     logger.info('Preparing dataset')
-    train_dataset = OEMFullDataset(
+    train_dataset = OEMDataset(
         root = train_args['train_dataset_dir'], 
         max_classes = train_args['n_classes'],
         mean = train_args['image_mean'],
         std = train_args['image_std'],
         mask_ratio = train_args['mask_ratio'],
+        resize= (1024, 1024),
         is_train=True,
     )
     val_dataset = OEMDataset(
@@ -81,6 +83,9 @@ def main(rank: int, world_size: int, train_args: Dict):
 
 
 if __name__ == '__main__':
-    train_args = json.load(open('configs/full.json', 'r'))
+    wandb.login(key="949cbb6e7c3e50aa642dc25b83612ac1d3f55f7e")
+    wandb.tensorboard.patch(root_logdir='logs/')
+    wandb.init(project="oem_base", sync_tensorboard=True)
+    train_args = json.load(open('configs/base.json', 'r'))
     world_size = T.cuda.device_count()
     mp.spawn(main, nprocs=world_size, args=(world_size, train_args))

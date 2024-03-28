@@ -119,11 +119,11 @@ class Agent():
             mask = masks[idx].cpu().float()
             masked_label = (1 - mask) * label  + mask * T.randn_like(mask)
             
-            result = T.concatenate([input_img, masked_label, label], axis=2)
+            result = T.concat([input_img, masked_label, label], axis=2)
             result = T.permute(result, (1, 2, 0))
             result = self.unnormalize(result)
             
-            result = T.concatenate([result, pred, cmap / 255.0], axis=1)
+            result = T.concat([result, pred, cmap / 255.0], axis=1)
             self.summary_writer.add_image(title, result, counter, dataformats='HWC')
     
     def unnormalize(self, img: T.tensor):
@@ -216,9 +216,13 @@ class Agent():
 
             self.write_summary('Validation/Loss', avg_losses, epoch)
             self.write_summary('Validation/mIoU', m_iou[1:].mean().item(), epoch)
+            for cls_id, c_iou in enumerate(m_iou.tolist()):
+                self.write_summary(f'Validation/IoU_{cls_id}', c_iou, epoch)
         else:
             self.write_summary('Training/Loss', avg_losses, epoch)
             self.write_summary('Training/mIoU', m_iou[1:].mean().item(), epoch)
+            for cls_id, c_iou in enumerate(m_iou.tolist()):
+                self.write_summary(f'Training/IoU_{cls_id}', c_iou, epoch)
 
         yield -1
 
@@ -302,11 +306,11 @@ class AgentOneClass(Agent):
             masked_label = (1 - mask) * label  + mask * T.randn_like(mask)
             c_label = class_label.cpu()[idx]
             
-            result = T.concatenate([input_img, masked_label, label], axis=2)
+            result = T.concat([input_img, masked_label, label], axis=2)
             result = T.permute(result, (1, 2, 0))
             result = self.unnormalize(result)
             
-            result = T.concatenate([result, pred, cmap / 255.0], axis=1)
+            result = T.concat([result, pred, cmap / 255.0], axis=1)
             self.summary_writer.add_image(f'{title}/{c_label}', result, counter, dataformats='HWC')
 
     def iou(self, pred: T.tensor, label: T.tensor, mask: T.tensor, ori_label: T.tensor, color_palette: T.tensor, n_classes: int, class_label: T.tensor):

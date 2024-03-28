@@ -691,11 +691,13 @@ class OEMAdapterDatasetV2(OEMAdapterDataset):
         validation_ratio: float = 0.1,
         is_train: bool = True,
         smallest_crop_size: int = 128,
+        biggest_crop_size: int = 512,
         smallest_stride: int = 64,
         is_phase_2: bool = False,
     ):
         self.validation_ratio = validation_ratio
         self.smallest_crop_size = smallest_crop_size
+        self.biggest_crop_size = biggest_crop_size
         self.smallest_stride = smallest_stride
         self.is_phase_2 = is_phase_2
         
@@ -709,7 +711,7 @@ class OEMAdapterDatasetV2(OEMAdapterDataset):
         self.bg_only = []
         crop_size = self.smallest_crop_size
         stride = self.smallest_stride
-        while crop_size <= 512:
+        while crop_size <= self.biggest_crop_size:
             for img, label in tqdm(zip(self.images, self.labels), desc=f'Crop size: {crop_size}, stride: {stride}'):
                 for i in range(0, img.shape[0] - crop_size, stride):
                     for j in range(0, img.shape[1] - crop_size, stride):
@@ -732,7 +734,7 @@ class OEMAdapterDatasetV2(OEMAdapterDataset):
 
     def __len__(self):
         if not self.is_train:
-            return int(len(self.samples) * .2)
+            return int(len(self.samples) * self.validation_ratio)
         return len(self.samples)
             
     def _init_augmentation(self):
@@ -774,7 +776,7 @@ class OEMAdapterDatasetV2(OEMAdapterDataset):
         return img, label, mask, valid, seg_type, ori_label, color_palette
     
 if __name__ == '__main__':
-    dataset = OEMAdapterDatasetV2('/disk3/steve/dataset/OpenEarthMap-FSS/testset/8', is_train=True, resize=(1024, 1024), smallest_crop_size=128, smallest_stride=16)
+    dataset = OEMAdapterDatasetV2('/disk3/steve/dataset/OpenEarthMap-FSS/testset/8', is_train=True, resize=(1024, 1024), smallest_crop_size=128, smallest_stride=16, biggest_crop_size=256)
     print(len(dataset))
     # for i in tqdm(range(len(dataset))):
     #     a = dataset[i]

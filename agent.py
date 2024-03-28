@@ -609,6 +609,35 @@ class AgentAdapter(Agent):
 
         yield -1
 
+    def save_checkpoint(self, epoch: int, name: str = '', only_model: bool = True):
+        if self.gpu_id == 0:
+            save_checkpoint = {'model_state_dict': {
+                'image_tensor': self.model.module.image_tensor,
+                'mask_tensor': self.model.module.mask_tensor,
+            }}
+            if not only_model:
+                save_checkpoint['optimizer_state_dict'] = self.optim.state_dict()
+                save_checkpoint['scheduler_state_dict'] = self.scheduler.state_dict()
+            if name != '':
+                ckpt_path = os.path.join(self.args['ckpt_dir'], f'{name}.pt')
+            else:
+                ckpt_path = os.path.join(
+                    self.args['ckpt_dir'],
+                    f'epoch{epoch:02}_loss{self.last_loss:.4f}_metric{self.last_metric_val:.4f}.pt',
+                )
+            T.save(save_checkpoint, ckpt_path)
+            self.logger.info(f'Checkpoint saved to {ckpt_path}')
+
+    def load_checkpoint(self, ckpt_path: str, only_model: bool = True):
+        assert os.path.exists(ckpt_path)
+        checkpoint = T.load(ckpt_path, map_location='cpu')
+        self.model.module.image_tensor.data = checkpoint['model_state_dict']['image_tensor'].to(self.gpu_id)
+        self.model.module.mask_tensor.data = checkpoint['model_state_dict']['mask_tensor'].to(self.gpu_id)
+        if not only_model:
+            self.optim.load_state_dict(checkpoint['optimizer_state_dict'])
+            self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+        self.logger.info(f'Succesfully loaded model in {ckpt_path}')
+
 
 class AgentMix():
     def __init__(

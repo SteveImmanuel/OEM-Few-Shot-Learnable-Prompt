@@ -91,7 +91,7 @@ def inference_image_with_crop(model, device, img_path, class_idx, outdir, split=
             final_out_label[col * col_size:(col + 1) * col_size, row * row_size:(row + 1) * row_size] = label
             final_out_image[col * col_size:(col + 1) * col_size, row * row_size:(row + 1) * row_size] = input_image
 
-
+    final_out_image = np.clip(final_out_image * 0.6 + final_out_color * 0.4, 0, 255)
     concat = np.concatenate((final_out_image, final_out_color), axis=1)
     final_out_label = final_out_label * class_idx
     final_out_color = Image.fromarray((final_out_color).astype(np.uint8))
@@ -183,7 +183,8 @@ def inference_stitch(model, device, img_path, class_idx, tgt_path, lbl_path, out
 
 def get_args_parser():
     parser = argparse.ArgumentParser('SegGPT inference adapter', add_help=False)
-    parser.add_argument('--model-path', type=str, help='path to ckpt', required=True)
+    parser.add_argument('--base-model-path', type=str, help='path to base ckpt', required=True)
+    parser.add_argument('--adapter-path', type=str, help='path to adapter ckpt', required=True)
     parser.add_argument('--class-idx', type=int, help='idx of the novel class', required=True)
     parser.add_argument('--split', type=int, help='how many to image split into (each dim)', default=2)
     parser.add_argument('--dataset-dir', type=str, help='path to input image to be tested', default='/disk3/steve/dataset/OpenEarthMap-FSS/testset/images')
@@ -195,10 +196,14 @@ def get_args_parser():
 if __name__ == '__main__':
     args = get_args_parser()
     seggpt_model = seggpt_vit_large_patch16_input896x448()
+    ckpt = T.load(args.base_model_path, map_location='cpu')
+    seggpt_model.load_state_dict(ckpt['model_state_dict'])
+    print('SegGPT base model loaded')
     model = AdapterSegGPT(seggpt_model)
-    ckpt = T.load(args.model_path, map_location='cpu')
-    model.load_state_dict(ckpt['model_state_dict'])
-    print('Checkpoint loaded')
+    adapter_ckpt = T.load(args.adapter_path, map_location='cpu')
+    model.image_tensor.data = adapter_ckpt['model_state_dict']['image_tensor']
+    model.mask_tensor.data = adapter_ckpt['model_state_dict']['mask_tensor']
+    print('Adapter loaded')
 
     model = model.to(args.device)
     model.eval()

@@ -1,0 +1,91 @@
+{
+    "8": {
+        "filter_list": [
+            "tokyo_57.png",
+            "tokyo_61.png",
+            "vienna_7.png",
+            "aachen_44.png",
+            "chincha_16.png",
+            "dowa_7.png",
+            "kujawsko-pomorskie_8.png",
+            "kyoto_28.png",
+            "kyoto_40.png",
+            "zanzibar_134.png"
+        ],
+        "force_overlay": []
+    },
+    "9": {
+        "filter_list": [
+            "chincha_16.png", 
+            "chincha_27.png", 
+            "kyoto_28.png",
+            "lima_3.png",
+            "melbourne_4.png",
+            "sechura_18.png",
+            "tyrolw_34.png",
+            "vienna_7.png", 
+            "dowa_7.png", 
+            "dowa_23.png", 
+            "duesseldorf_42.png",
+            "kujawsko-pomorskie_6.png",
+            "mazowieckie_24.png",
+            "slaskie_8.png",
+            "zanzibar_134.png",
+            "viru_44.png",
+            "rotterdam_7.png"
+        ],
+        "force_overlay": []
+    },
+    "10": {
+        "filter_list": [
+            "chiclayo_10.png",
+            "dowa_7.png",
+            "dowa_23.png",
+            "kujawsko-pomorskie_6.png",
+            "mazowieckie_24.png",
+            "muenster_35.png",
+            "paris_26.png",
+            "pisco_19.png",
+            "slaskie_8.png",
+            "tyrolw_34.png",
+            "abancay_2.png",
+            "abancay_17.png",
+            "chisinau_32.png",
+            "duesseldorf_42.png",
+            "rio_61.png",
+            "shanghai_24.png",
+            "shanghai_56.png",
+            "tyrolw_59.png",
+            "vienna_7.png"
+        ],
+        "force_overlay": [
+            "aachen_60.png",
+            "bogota_5.png",
+            "duesseldorf_21.png",
+            "kujawsko-pomorskie_8.png",
+            "melbourne_2.png",
+            "melbourne_4.png",
+            "pisco_40.png",
+            "piura_15.png",
+            "santiago_23.png",
+            "santiago_25.png",
+            "wielkopolskie_17.png",
+            "tonga_41.png"
+        ]
+    },
+    "11": {
+        "filter_list": [
+            "bielefeld_11.png",
+            "dowa_7.png",
+            "dowa_23.png",
+            "san_tome_34.png",
+            "tyrolw_34.png",
+            "mazowieckie_24.png",
+            "pisco_19.png",
+            "viru_44.png"
+        ],
+        "force_overlay": [
+            "shanghai_24.png"
+        ]
+    }
+}

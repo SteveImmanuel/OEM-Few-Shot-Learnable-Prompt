@@ -2,6 +2,7 @@ import sys
 sys.path.append('Painter/SegGPT/SegGPT_inference')
 
 import os
+import argparse
 import json
 import torch as T
 import torch.multiprocessing as mp
@@ -77,12 +78,16 @@ def main(rank: int, world_size: int, train_args: Dict):
         sampler=DistributedSampler(val_dataset),
     )
 
-
     trainer.do_training(train_dataloader, val_dataloader, train_args['eval_per_epoch'])
     destroy_process_group()
 
+def get_args_parser():
+    parser = argparse.ArgumentParser('SegGPT train', add_help=False)
+    parser.add_argument('--config', type=str, help='path to json config', default='configs/base.json')
+    return parser.parse_args()
 
 if __name__ == '__main__':
-    train_args = json.load(open('configs/base.json', 'r'))
+    args = get_args_parser()
+    train_args = json.load(open(args.config, 'r'))
     world_size = T.cuda.device_count()
     mp.spawn(main, nprocs=world_size, args=(world_size, train_args))

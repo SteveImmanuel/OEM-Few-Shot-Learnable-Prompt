@@ -4,7 +4,7 @@ This repo contains the code for "OpenEarthMap Land Cover Mapping Few-Shot Challe
 ## Setup
 Clone the repository using:
 ```bash
-git clone --recursive git://github.com/foo/bar.git
+git clone --recursive https://github.com/SteveImmanuel/OEM-Few-Shot-Learnable-Prompt.git
 ```
 
 This code is developed with Python 3.9.
@@ -164,7 +164,7 @@ In subsequent runs, the `source-folder` should be the output directory of the pr
 Setup the dataset directory and train all base and novel classes following the previous sections.
 
 Due to stochasticity, we also provide all of our checkpoints for the base and novel classes.
-Download the checkpoints `base.pt`, `8_test.pt`, `9_test.pt`, `10_test.pt`, `11_test.pt` from [here](https://drive.google.com/drive/folders/1). Place all of them in one directory.
+Download the checkpoints `base.pt`, `8_test.pt`, `9_test.pt`, `10_test.pt`, `11_test.pt` from [here](https://github.com/SteveImmanuel/OEM-Few-Shot-Learnable-Prompt/releases/tag/1.0.0). Place all of them in one directory.
 
 Run the following command to generate the submission:
 ```bash

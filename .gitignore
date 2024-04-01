@@ -172,3 +172,7 @@ cache
 restemp
 submissions
 class_*
+
+*.png
+*.tif
+*.zip

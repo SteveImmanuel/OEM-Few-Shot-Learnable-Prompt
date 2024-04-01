@@ -15,24 +15,6 @@ from utils import *
 IMAGENET_MEAN = np.array([0.485, 0.456, 0.406])
 IMAGENET_STD = np.array([0.229, 0.224, 0.225])
 
-# COLOR_MAP = np.array([
-#     # (0, 0, 0),      # Background (e.g., sky)
-#     (34, 139, 34),  # Tree (Forest Green)
-#     (0, 255, 127),  # Rangeland (Chartreuse)
-#     (0, 255, 36),   # Bareland (Green)
-#     (244, 164, 96), # Agricultural Land Type 1 (Sandy Brown)
-#     (255, 255, 255),# Road Type 1 (White)
-#     (0, 191, 255),  # Sea, Lake, & Pond (Deep Sky Blue)
-#     (255, 0, 0),    # Building Type 1 (Red)
-#     # (218, 165, 32), # Road Type 2 (Goldenrod)
-#     # (65, 105, 225), # River (Royal Blue)
-#     # (0, 255, 127),  # Boat & Ship (Spring Green)
-#     # (107, 142, 35), # Agricultural Land Type 2 (Olive Drab)
-#     # (240, 230, 140),# (Add meaningful label) (Khaki)
-#     # (128, 0, 128),  # (Add meaningful label) (Purple)
-#     # (255, 20, 147)  # (Add meaningful label) (Deep Pink)
-# ])
-
 COLOR_MAP = np.array([
     (0, 0,  0),
     (40, 130,  72),
@@ -43,17 +25,6 @@ COLOR_MAP = np.array([
     (59,  17, 243),
     (114,   6,  39),
 ])
-
-# COLOR_MAP = np.array([
-#     (0, 0,  0),
-#     (40, 130,  72),
-#     (255, 237, 2),
-#     (222, 173,  100),
-#     (255,  0, 0),
-#     (255, 255, 255),
-#     (59,  17, 243),
-#     (114,   6,  39),
-# ])
 
 @torch.no_grad()
 def run_one_image(img, tgt, model, device, mask=None):
@@ -86,14 +57,6 @@ def run_one_image(img, tgt, model, device, mask=None):
     mask = mask.permute(0, 2, 3, 1)
     mask = mask[0, mask.shape[1]//2:, :, :]
     mask = mask.cpu().float()
-    # temp_img = x[0].permute(1, 2, 0)
-    # print(temp_img.shape)
-    # masked_label = (1 - mask) * temp_img  + mask * torch.randn_like(mask)
-    # masked_label = torch.clip((masked_label * IMAGENET_STD + IMAGENET_MEAN) * 255, 0, 255)
-    # masked_label = masked_label.cpu().numpy()
-    # print(masked_label.shape)
-    # timg = Image.fromarray((masked_label).astype(np.uint8))
-    # timg.save('temp_test.png')
 
     return output, mask
 
@@ -178,6 +141,136 @@ def inference_image_with_crop(model, device, img_path, img2_paths, tgt2_paths, o
     final_out_label.save(os.path.join(outdir, 'label', filename))
     concat.save(os.path.join(outdir, 'concat', filename))
 
+# def inference_image_with_crop_v2(model, device, img_path, img2_paths, tgt2_paths, outdir, top_k, split=2):
+#     res, hres = 448, 448
+
+#     full_image = Image.open(img_path).convert("RGB").resize((1024, 1024))
+#     row_size = full_image.size[0] // split
+#     col_size = full_image.size[1] // split
+    
+#     h, w = full_image.size
+#     final_out_color = np.zeros((h, w, 3))
+#     final_out_label = np.zeros((h, w))
+#     final_out_image = np.zeros((h, w, 3))
+
+
+#     prompt_embeds = []
+#     keys = []
+#     prompt_img = {}
+#     prompt_target = {}
+#     for img2_path, tgt2_path in zip(img2_paths, tgt2_paths):
+#         full_img2 = Image.open(img2_path).convert("RGB").resize((1024, 1024))
+#         full_tgt2 = Image.open(tgt2_path).convert("RGB").resize((1024, 1024), Image.NEAREST)
+
+#         for i_row in range(split):
+#             for i_col in range(split):
+#                 img2 = full_img2.crop((i_row * row_size, i_col * col_size, (i_row + 1) * row_size, (i_col + 1) * col_size))
+#                 tgt2 = full_tgt2.crop((i_row * row_size, i_col * col_size, (i_row + 1) * row_size, (i_col + 1) * col_size))
+
+#                 img_embed = extract_img_embed(img2, device).cpu().numpy()
+#                 prompt_embeds.append(img_embed)
+#                 key = f'{img2_path}_{i_row}_{i_col}'
+#                 prompt_img[key] = img2
+#                 prompt_target[key] = tgt2
+#                 keys.append(key)
+
+#     prompt_embeds = np.concatenate(prompt_embeds, axis=0)
+
+#     for row in range(split):
+#         for col in range(split):
+#             image = full_image.crop((row * row_size, col * col_size, (row + 1) * row_size, (col + 1) * col_size))
+#             tempname = os.path.basename(img_path).replace('.tif', '') + f'_{row}_{col}'
+#             image.save(f'{tempname}.png')
+            
+#             image_embed = extract_img_embed(image, device).cpu().numpy()
+#             sim = cosine_similarity(image_embed, prompt_embeds)[0]
+#             sim = list(zip(keys, sim))
+#             sim = sorted(sim, key=lambda x: x[1], reverse=True)
+#             print(len(sim))
+#             # for i, (key, val) in enumerate(sim):
+#             #     img2 = prompt_img[key]
+#             #     img2.save(f'{tempname}_{i}_{val}.png')
+
+
+#             input_image = np.array(image)
+#             image = np.array(image.resize((res, hres))) / 255.
+
+#             image_batch, target_batch = [], []
+#             for i, (key, val) in enumerate(sim[:2]):
+#                 img2 = prompt_img[key]
+#                 tgt2 = prompt_target[key]
+
+#                 img2 = img2.resize((res, hres))
+#                 img2.save(f'{tempname}_{i}_{val}.png')
+#                 tgt2.save(f'{tempname}_{i}_{val}_label.png')
+#                 img2 = np.array(img2) / 255.
+
+#                 tgt2 = tgt2.resize((res, hres), Image.NEAREST)
+#                 tgt2 = np.array(tgt2) / 255.
+
+#                 tgt = tgt2  # tgt is not available
+#                 tgt = np.concatenate((tgt2, tgt), axis=0)
+#                 img = np.concatenate((img2, image), axis=0)
+            
+#                 assert img.shape == (2*res, res, 3), f'{img.shape}'
+#                 # normalize by ImageNet mean and std
+#                 img = img - IMAGENET_MEAN
+#                 img = img / IMAGENET_STD
+
+#                 assert tgt.shape == (2*res, res, 3), f'{img.shape}'
+#                 # normalize by ImageNet mean and std
+#                 tgt = tgt - IMAGENET_MEAN
+#                 tgt = tgt / IMAGENET_STD
+
+#                 image_batch.append(img)
+#                 target_batch.append(tgt)
+            
+#             img = np.stack(image_batch, axis=0)
+#             tgt = np.stack(target_batch, axis=0)
+#             torch.manual_seed(2)
+#             output, _ = run_one_image(img, tgt, model, device)
+#             output = F.interpolate(
+#                 output[None, ...].permute(0, 3, 1, 2), 
+#                 size=[row_size, col_size], 
+#                 mode='nearest',
+#             ).permute(0, 2, 3, 1)
+#             temp = Image.fromarray((output[0].cpu().numpy()).astype(np.uint8))
+#             temp.save(f'{tempname}_output.png')
+#             output, label = cmap_to_lbl(output, torch.tensor(COLOR_MAP, device=output.device, dtype=output.dtype).unsqueeze(0))
+#             # output, label, confidence_map = cmap_to_lbl(output2, torch.tensor(COLOR_MAP, device=output.device, dtype=output.dtype).unsqueeze(0))
+            
+#             # print(confidence_map.shape, confidence_map.min(), confidence_map.max())
+#             # confidence_map = confidence_map[0].numpy()
+#             # confidence_map = (confidence_map / confidence_map.max())
+#             # import matplotlib.pyplot as plt
+#             # # img_arr = np.array(image) / 255.0
+#             # viridis_cmap = plt.cm.get_cmap('viridis')
+#             # confidence_map = viridis_cmap(confidence_map)
+#             # confidence_map = confidence_map[:, :, :3] * 255
+
+
+#             output = output[0].numpy()
+#             label = label[0].numpy()
+#             final_out_color[col * col_size:(col + 1) * col_size, row * row_size:(row + 1) * row_size] = output
+#             final_out_label[col * col_size:(col + 1) * col_size, row * row_size:(row + 1) * row_size] = label
+#             final_out_image[col * col_size:(col + 1) * col_size, row * row_size:(row + 1) * row_size] = input_image
+
+#     # print(final_out_color.shape, final_out_image.shape, confidence_map.shape)
+#     # concat = np.concatenate((final_out_image, final_out_color, output2[0].numpy(), confidence_map), axis=1)
+#     concat = np.concatenate((final_out_image, final_out_color), axis=1)
+#     final_out_color = Image.fromarray((final_out_color).astype(np.uint8))
+#     concat = Image.fromarray((concat).astype(np.uint8))
+#     final_out_label = Image.fromarray((final_out_label).astype(np.uint8))
+
+#     filename = os.path.basename(img_path).replace('.tif', '.png')
+#     os.makedirs(os.path.join(outdir, 'color'), exist_ok=True)
+#     os.makedirs(os.path.join(outdir, 'concat'), exist_ok=True)
+#     os.makedirs(os.path.join(outdir, 'label'), exist_ok=True)
+
+#     final_out_color.save(os.path.join(outdir, 'color', filename))
+#     final_out_label.save(os.path.join(outdir, 'label', filename))
+#     concat.save(os.path.join(outdir, 'concat', filename))
+
 def inference_stitch(model, device, img_path, tgt_path, lbl_path, img2_paths, tgt2_paths, outdir, split=2, width=4):
     # run after inference_image_with_crop
     # only works for split = 2
@@ -207,6 +300,7 @@ def inference_stitch(model, device, img_path, tgt_path, lbl_path, img2_paths, tg
 
         cropped_image = full_image.crop(crop_param).resize((res, hres))
         cropped_tgt = full_tgt.crop(crop_param).resize((res, hres), Image.NEAREST)
+
         cropped_image = np.array(cropped_image.resize((res, hres))) / 255.
         cropped_tgt = np.array(cropped_tgt) / 255.
 
@@ -312,6 +406,7 @@ if __name__ == '__main__':
         prompt = [os.path.join(args.prompt_img_dir, file) for file in mapping[input_image][:args.top_k]]
         prompt_target = [os.path.join(args.prompt_label_dir, file.replace('.tif', '.png')) for file in mapping[input_image][:args.top_k]]
         inference_image_with_crop(model, args.device, input, prompt, prompt_target, args.outdir, split=args.split)
+        # inference_image_with_crop_v2(model, args.device, input, prompt, prompt_target, args.outdir, args.top_k, split=args.split)
         if args.split == 2:
             tgt_path = os.path.join(args.outdir, 'color', input_image.replace('.tif', '.png'))
             lbl_path = os.path.join(args.outdir, 'label', input_image.replace('.tif', '.png'))

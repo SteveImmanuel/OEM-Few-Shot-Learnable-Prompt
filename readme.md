@@ -103,6 +103,7 @@ The directory `8` to `11` contains the `support set` each for the respective nov
 
 ## Training
 Training is separated for base classes and novel classes.
+Download initial checkpoint from [here](https://huggingface.co/BAAI/SegGPT/blob/main/seggpt_vit_large.pth) and place it in the root directory.
 Make sure to change the `train_dataset_dir` and `val_dataset_dir` in the config files.
 
 **Note**: Validation set requires full labels for all classes, meanwhile the `support set` only contains the label novel specific novel class. We use the same training set for validation.

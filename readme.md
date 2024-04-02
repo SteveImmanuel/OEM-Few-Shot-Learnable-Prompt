@@ -22,7 +22,7 @@ conda env create -f env.yml
 ```
 
 ## Dataset
-Download the dataset from https://zenodo.org/records/10828417.
+Download the dataset from https://zenodo.org/records/10828417. Alternatively, you can download the our pre-configured dataset from [here](https://github.com/SteveImmanuel/OEM-Few-Shot-Learnable-Prompt/releases/download/1.0.0/OEM.zip) and you can skip the following steps.
 
 ### Training Set (Base Classes)
 Extract the `trainset.zip` and configure the directory as follows:
@@ -129,7 +129,7 @@ python train_adapter.py --config configs/adapter_<i>.json --adapter-path <path/t
 ## Inference
 
 ### Mappings for Prompt
-We provide the mappings in the `mappings` directory. In order to generate these files, use the `notebooks/create_mapping.ipynb` and `notebooks/novel_class_filtering.ipynb` notebook.
+We provide the mappings in the `mappings` directory. In order to generate these files, use the `notebooks/create_mapping.ipynb` and `notebooks/novel_class_filtering.ipynb` notebooks.
 
 ### Base Classes
 ```bash
@@ -156,7 +156,7 @@ The results for base and novel classes can be combined using `combine.py` script
 python combine.py --class-idx <novel_class_idx> \
 --outdir <path/where/to/output> \
 --source-folder <path/to/base/predictions> \
---target-folder <path/to/novel/predictions> \
+--target-folder <path/to/novel/predictions>
 ```
 In subsequent runs, the `source-folder` should be the output directory of the previous run.
 
@@ -172,7 +172,16 @@ python submission.py \
 --ckpt-path <path/to/checkpoints> \
 --dataset-dir <path/to/query/set> \
 --prompt-img-dir <path/to/trainset/images> \
---prompt-label-dir <path/to/trainset/labels_color> \
+--prompt-label-dir <path/to/trainset/labels_color>
+```
+
+If you use our pre-configured dataset, this will look like:
+```bash
+python submission.py \
+--ckpt-path <path/to/checkpoints> \
+--dataset-dir testset/images \
+--prompt-img-dir trainset/images \
+--prompt-label-dir trainset/labels_color
 ```
 **Note**: The inference script requires ~16GB GPU memory.
 

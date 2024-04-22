@@ -1,5 +1,6 @@
 # Learnable Prompt for Few-Shot Semantic Segmentation
-This repo contains the code for "OpenEarthMap Land Cover Mapping Few-Shot Challenge" co-organized with the L3D-IVU CVPR 2024 Workshop.
+This repo contains the official code for the paper [Learnable Prompt for Few-Shot Semantic Segmentation in Remote Sensing Domain
+](https://arxiv.org/abs/2404.10307) for the "OpenEarthMap Land Cover Mapping Few-Shot Challenge" co-organized with the L3D-IVU CVPR 2024 Workshop.
 
 ## Setup
 Clone the repository using:
